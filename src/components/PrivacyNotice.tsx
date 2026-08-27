@@ -203,28 +203,28 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
   };
 
   return (
-    <div id="advisory-request-page" className="w-full max-w-2xl mx-auto px-4 py-6 sm:py-8 space-y-6">
+    <div id="advisory-request-page" className="w-full max-w-2xl mx-auto px-4 py-5 sm:py-8 space-y-6">
       {/* Top Navigation */}
       <div className="flex items-center justify-between">
         <button
           id="btn-back-from-advisory"
           type="button"
           onClick={onBackToResults}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 bg-white border border-slate-200 shadow-2xs hover:bg-slate-50 transition-colors"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 bg-white border border-slate-200 shadow-2xs hover:bg-[#F4F9F5] transition-colors cursor-pointer"
         >
           <ChevronLeft className="w-4 h-4" />
           <span>ย้อนกลับไปหน้าผลลัพธ์</span>
         </button>
 
-        <span className="text-xs font-semibold text-sky-950 bg-amber-100/90 px-3 py-1.5 rounded-full border border-amber-300 shadow-2xs">
+        <span className="text-xs font-bold text-[#00381D] bg-[#FDFBF2] px-3.5 py-1.5 rounded-full border border-[#D4AF37]/50 shadow-2xs">
           บริการแนะแนวการศึกษา มสธ.
         </span>
       </div>
 
       {/* Hero Header */}
-      <div className="bg-gradient-to-r from-sky-950 via-sky-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-7 shadow-md border border-amber-500/20 relative overflow-hidden">
+      <div className="bg-[#004D28] text-white rounded-3xl p-6 sm:p-7 shadow-md border-2 border-[#D4AF37]/40 relative overflow-hidden">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-400 text-sky-950 flex items-center justify-center flex-shrink-0 shadow-xs">
+          <div className="w-12 h-12 rounded-2xl bg-[#D4AF37] text-[#00381D] flex items-center justify-center flex-shrink-0 shadow-xs">
             <Headphones className="w-6 h-6" />
           </div>
           <div className="space-y-1">
@@ -240,8 +240,8 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
 
       {/* Direct Contact Channels Box */}
       <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 space-y-4 shadow-sm">
-        <h2 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
-          <Building className="w-4 h-4 text-sky-900" />
+        <h2 className="text-sm sm:text-base font-bold text-[#00381D] flex items-center gap-2">
+          <Building className="w-4 h-4 text-[#006837]" />
           <span>ช่องทางติดต่อเจ้าหน้าที่ มสธ. ได้ทันที</span>
         </h2>
 
@@ -250,14 +250,14 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
           <a
             id="link-stou-callcenter"
             href={`tel:${STOU_CALL_CENTER.replace(/\s+/g, '')}`}
-            className="p-3.5 rounded-2xl bg-slate-50 hover:bg-sky-50 border border-slate-200 hover:border-sky-300 transition-colors flex items-center gap-3"
+            className="p-3.5 rounded-2xl bg-[#F8FAF9] hover:bg-[#F0F7F2] border border-slate-200 hover:border-[#006837]/30 transition-colors flex items-center gap-3"
           >
-            <div className="w-9 h-9 rounded-xl bg-sky-950 text-amber-300 flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-[#004D28] text-[#E5C158] flex items-center justify-center flex-shrink-0">
               <Phone className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <p className="font-semibold text-slate-900 text-xs sm:text-sm">STOU Call Center</p>
-              <p className="text-xs text-sky-900 font-bold mt-0.5">{STOU_CALL_CENTER}</p>
+              <p className="text-xs text-[#004D28] font-bold mt-0.5">{STOU_CALL_CENTER}</p>
               <p className="text-[11px] text-slate-500 truncate">วันจันทร์ - อาทิตย์ (เวลาราชการ)</p>
             </div>
           </a>
@@ -268,7 +268,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
             href="https://line.me/R/ti/p/@stoucallcenter"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-3.5 rounded-2xl bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 transition-colors flex items-center gap-3"
+            className="p-3.5 rounded-2xl bg-[#F8FAF9] hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 transition-colors flex items-center gap-3"
           >
             <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
               <MessageCircle className="w-4 h-4" />
@@ -286,26 +286,26 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
             href={STOU_ADMISSION_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-3.5 rounded-2xl bg-slate-50 hover:bg-amber-50 border border-slate-200 hover:border-amber-300 transition-colors flex items-center gap-3"
+            className="p-3.5 rounded-2xl bg-[#F8FAF9] hover:bg-[#FDFBF2] border border-slate-200 hover:border-[#D4AF37]/50 transition-colors flex items-center gap-3"
           >
-            <div className="w-9 h-9 rounded-xl bg-amber-500 text-sky-950 flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-[#D4AF37] text-[#00381D] flex items-center justify-center flex-shrink-0">
               <Globe className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <p className="font-semibold text-slate-900 text-xs sm:text-sm">ระบบรับสมัครนักศึกษา</p>
-              <p className="text-xs text-amber-900 font-bold mt-0.5">apply.stou.ac.th</p>
+              <p className="text-xs text-[#B38918] font-bold mt-0.5">apply.stou.ac.th</p>
               <p className="text-[11px] text-slate-500 truncate">สมัครออนไลน์ได้ตลอด 24 ชม.</p>
             </div>
           </a>
 
           {/* Booth Staff Note */}
-          <div className="p-3.5 rounded-2xl bg-sky-50/80 border border-sky-200/80 flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-sky-900 text-amber-300 flex items-center justify-center flex-shrink-0">
+          <div className="p-3.5 rounded-2xl bg-[#F0F7F2] border border-[#006837]/20 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#004D28] text-[#E5C158] flex items-center justify-center flex-shrink-0">
               <Clock className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <p className="font-semibold text-sky-950 text-xs sm:text-sm">ผู้เข้าชมบูธนิทรรศการ</p>
-              <p className="text-[11px] text-sky-900 leading-snug">
+              <p className="font-bold text-[#00381D] text-xs sm:text-sm">ผู้เข้าชมบูธนิทรรศการ</p>
+              <p className="text-[11px] text-[#004D28] leading-snug">
                 สามารถยื่นหน้าจอนี้ให้เจ้าหน้าที่ประจำบูธ มสธ. ช่วยแนะนำได้ทันที
               </p>
             </div>
@@ -316,8 +316,8 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
       {/* Main Consultation Form Card */}
       <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-7 space-y-5 shadow-sm">
         <div className="space-y-1 pb-2 border-b border-slate-100">
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-amber-500" />
+          <h2 className="text-base font-bold text-[#00381D] flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#D4AF37]" />
             <span>แบบฟอร์มขอให้เจ้าหน้าที่ มสธ. ติดต่อกลับ</span>
           </h2>
           <p className="text-xs text-slate-500">
@@ -367,26 +367,26 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             id="submission-success-card"
-            className="p-6 sm:p-7 rounded-2xl bg-emerald-50 border border-emerald-300 text-center space-y-4 shadow-sm"
+            className="p-6 sm:p-7 rounded-3xl bg-[#F0F7F2] border border-[#006837]/30 text-center space-y-4 shadow-sm"
           >
-            <div className="w-14 h-14 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-md">
+            <div className="w-14 h-14 rounded-full bg-[#006837] text-white flex items-center justify-center mx-auto shadow-md">
               <CheckCircle2 className="w-8 h-8" />
             </div>
 
             <div className="space-y-1.5">
-              <h3 className="text-lg font-bold text-emerald-950">
+              <h3 className="text-lg font-bold text-[#00381D]">
                 ส่งข้อมูลให้เจ้าหน้าที่ มสธ. สำเร็จแล้ว
               </h3>
-              <p className="text-xs sm:text-sm text-emerald-800 leading-relaxed max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-[#004D28] leading-relaxed max-w-md mx-auto">
                 เจ้าหน้าที่แนะแนวการศึกษา มสธ. จะติดต่อกลับตามช่องทางที่ท่านระบุ เพื่อให้ข้อมูลหลักสูตรและคำปรึกษาโดยเร็วที่สุด
               </p>
             </div>
 
             {/* Unique Lead ID Reference Badge */}
             {submissionResult.lead_id && (
-              <div className="inline-block bg-white border border-emerald-300 rounded-xl px-4 py-2 text-xs text-slate-700 shadow-2xs">
+              <div className="inline-block bg-white border border-[#006837]/30 rounded-xl px-4 py-2 text-xs text-slate-700 shadow-2xs">
                 <span className="text-slate-500 font-medium">รหัสอ้างอิงการติดต่อ (Lead ID): </span>
-                <span className="font-mono font-bold text-sky-950">{submissionResult.lead_id}</span>
+                <span className="font-mono font-bold text-[#004D28]">{submissionResult.lead_id}</span>
               </div>
             )}
 
@@ -395,7 +395,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                 id="btn-return-results-after-submit"
                 type="button"
                 onClick={onBackToResults}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-sky-950 text-amber-300 text-xs sm:text-sm font-bold shadow-xs hover:bg-sky-900 transition-colors"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#004D28] text-[#E5C158] text-xs sm:text-sm font-bold shadow-xs hover:bg-[#00381D] transition-colors cursor-pointer"
               >
                 กลับสู่หน้าผลการแนะนำหลักสูตร
               </button>
@@ -404,7 +404,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                 id="btn-new-lead-form"
                 type="button"
                 onClick={() => setSubmissionResult(null)}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white border border-emerald-300 text-emerald-900 text-xs sm:text-sm font-semibold hover:bg-emerald-100 transition-colors"
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white border border-[#006837]/30 text-[#004D28] text-xs sm:text-sm font-bold hover:bg-[#F0F7F2] transition-colors cursor-pointer"
               >
                 ส่งข้อมูลเพิ่มเติม
               </button>
@@ -430,7 +430,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 bg-slate-50 focus:bg-white focus:outline-none transition-colors ${
                   formErrors.fullName
                     ? 'border-rose-400 focus:ring-2 focus:ring-rose-500'
-                    : 'border-slate-300 focus:border-sky-900 focus:ring-2 focus:ring-sky-900/20'
+                    : 'border-slate-300 focus:border-[#006837] focus:ring-2 focus:ring-[#006837]/20'
                 }`}
               />
               {formErrors.fullName && (
@@ -456,13 +456,13 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                       key={item.type}
                       type="button"
                       onClick={() => setFormData({ ...formData, contactType: item.type })}
-                      className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-center gap-1.5 text-xs font-semibold transition-all ${
+                      className={`p-2.5 rounded-xl border flex flex-col sm:flex-row items-center justify-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
                         isSelected
-                          ? 'bg-sky-950 text-white border-sky-950 shadow-xs'
+                          ? 'bg-[#004D28] text-white border-[#004D28] shadow-xs'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 ${isSelected ? 'text-amber-400' : 'text-slate-500'}`} />
+                      <Icon className={`w-4 h-4 ${isSelected ? 'text-[#E5C158]' : 'text-slate-500'}`} />
                       <span>{item.label}</span>
                     </button>
                   );
@@ -494,7 +494,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                 className={`w-full px-3.5 py-2.5 rounded-xl border text-sm text-slate-900 bg-slate-50 focus:bg-white focus:outline-none transition-colors ${
                   formErrors.contactValue
                     ? 'border-rose-400 focus:ring-2 focus:ring-rose-500'
-                    : 'border-slate-300 focus:border-sky-900 focus:ring-2 focus:ring-sky-900/20'
+                    : 'border-slate-300 focus:border-[#006837] focus:ring-2 focus:ring-[#006837]/20'
                 }`}
               />
               {formErrors.contactValue && (
@@ -519,14 +519,14 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                       key={prog.id}
                       type="button"
                       onClick={() => toggleProgram(prog.id)}
-                      className={`p-2.5 rounded-xl border text-left flex items-center justify-between text-xs transition-colors ${
+                      className={`p-2.5 rounded-xl border text-left flex items-center justify-between text-xs transition-colors cursor-pointer ${
                         isChecked
-                          ? 'bg-sky-950 text-white border-sky-950 font-medium shadow-2xs'
+                          ? 'bg-[#004D28] text-white border-[#004D28] font-bold shadow-2xs'
                           : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
                       }`}
                     >
                       <span className="truncate pr-1">{prog.name}</span>
-                      {isChecked && <CheckCircle2 className="w-4 h-4 text-amber-300 flex-shrink-0" />}
+                      {isChecked && <CheckCircle2 className="w-4 h-4 text-[#E5C158] flex-shrink-0" />}
                     </button>
                   );
                 })}
@@ -542,7 +542,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                 id="input-study-bg"
                 value={formData.studyBackground}
                 onChange={(e) => setFormData({ ...formData, studyBackground: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-900/20"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#006837]/20"
               >
                 <option value="ม.6 / กศน. / ปวช.">ม.6 / กศน. / ปวช. (หลักสูตร 4 ปี)</option>
                 <option value="ปวส. / อนุปริญญา">ปวส. / อนุปริญญา (หลักสูตรเทียบโอน 2-3 ปี)</option>
@@ -562,12 +562,12 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                 placeholder="เช่น ต้องการทราบค่าใช้จ่ายตลอดหลักสูตร หรือสะดวกให้ติดต่อกลับช่วงบ่าย 13:00 - 16:00 น."
                 value={formData.inquiryNote}
                 onChange={(e) => setFormData({ ...formData, inquiryNote: e.target.value })}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-900/20 resize-none"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#006837]/20 resize-none"
               />
             </div>
 
             {/* 7. Mandatory & Optional Consents (PDPA Compliance) */}
-            <div className="space-y-3 pt-2 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+            <div className="space-y-3 pt-2 bg-[#F8FAF9] p-4 rounded-2xl border border-slate-200">
               <div className="flex items-start gap-3">
                 <input
                   id="checkbox-consent-info"
@@ -578,7 +578,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                     setFormData({ ...formData, consentInfo: e.target.checked });
                     if (formErrors.consentInfo) setFormErrors({ ...formErrors, consentInfo: '' });
                   }}
-                  className="w-4 h-4 mt-0.5 rounded border-slate-300 text-sky-900 focus:ring-sky-900 flex-shrink-0 cursor-pointer"
+                  className="w-4 h-4 mt-0.5 rounded border-slate-300 text-[#006837] focus:ring-[#006837] flex-shrink-0 cursor-pointer"
                 />
                 <label htmlFor="checkbox-consent-info" className="text-xs text-slate-800 leading-relaxed cursor-pointer">
                   <span className="font-bold text-slate-900">ยินยอมให้เจ้าหน้าที่ มสธ. ติดต่อกลับ <span className="text-rose-600">*</span></span>
@@ -597,7 +597,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
                   type="checkbox"
                   checked={formData.consentNews}
                   onChange={(e) => setFormData({ ...formData, consentNews: e.target.checked })}
-                  className="w-4 h-4 mt-0.5 rounded border-slate-300 text-sky-900 focus:ring-sky-900 flex-shrink-0 cursor-pointer"
+                  className="w-4 h-4 mt-0.5 rounded border-slate-300 text-[#006837] focus:ring-[#006837] flex-shrink-0 cursor-pointer"
                 />
                 <label htmlFor="checkbox-consent-news" className="text-xs text-slate-700 leading-relaxed cursor-pointer">
                   <span className="font-semibold text-slate-800">ยินยอมรับข่าวสารการรับสมัครและกิจกรรมทางการศึกษา มสธ. (ไม่บังคับ)</span>
@@ -616,7 +616,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
               className={`w-full py-4 px-5 rounded-2xl font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md transition-all ${
                 isSubmitting
                   ? 'bg-slate-400 text-white cursor-not-allowed'
-                  : 'bg-sky-950 text-amber-300 hover:bg-sky-900 active:scale-[0.99] cursor-pointer'
+                  : 'bg-gradient-to-r from-[#004D28] via-[#006837] to-[#0B7A42] text-[#E5C158] border-2 border-[#D4AF37]/50 hover:brightness-110 active:scale-[0.99] cursor-pointer'
               }`}
             >
               {isSubmitting ? (
@@ -636,10 +636,10 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
       </div>
 
       {/* Comprehensive PDPA Privacy Notice Card */}
-      <div id="pdpa-notice-card" className="bg-slate-100/90 rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3 text-xs text-slate-600 leading-relaxed shadow-2xs">
+      <div id="pdpa-notice-card" className="bg-[#F8FAF9] rounded-2xl p-4 sm:p-5 border border-slate-200 space-y-3 text-xs text-slate-600 leading-relaxed shadow-2xs">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 font-bold text-slate-800 text-xs sm:text-sm">
-            <Shield className="w-4 h-4 text-sky-900" />
+          <div className="flex items-center gap-2 font-bold text-[#00381D] text-xs sm:text-sm">
+            <Shield className="w-4 h-4 text-[#006837]" />
             <span>การคุ้มครองข้อมูลส่วนบุคคล (PDPA Privacy Notice)</span>
           </div>
 
@@ -647,7 +647,7 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
             id="btn-toggle-pdpa-details"
             type="button"
             onClick={() => setShowFullPrivacyPolicy(!showFullPrivacyPolicy)}
-            className="text-xs font-semibold text-sky-900 hover:text-sky-950 underline cursor-pointer"
+            className="text-xs font-bold text-[#004D28] hover:text-[#006837] underline cursor-pointer"
           >
             {showFullPrivacyPolicy ? 'ย่อรายละเอียด' : 'อ่านประกาศฉบับเต็ม'}
           </button>
@@ -661,30 +661,30 @@ export const PrivacyNotice: React.FC<PrivacyNoticeProps> = ({
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
-            className="pt-3 border-t border-slate-200 space-y-2.5 text-[11px] sm:text-xs text-slate-700 bg-white p-3.5 rounded-xl border border-slate-200"
+            className="pt-3 border-t border-slate-200 space-y-2.5 text-[11px] sm:text-xs text-slate-700 bg-white p-3.5 rounded-2xl border border-slate-200"
           >
             <div>
-              <p className="font-bold text-sky-950">1. ผู้ควบคุมข้อมูลส่วนบุคคล (Data Controller)</p>
+              <p className="font-bold text-[#00381D]">1. ผู้ควบคุมข้อมูลส่วนบุคคล (Data Controller)</p>
               <p className="text-slate-600">มหาวิทยาลัยสุโขทัยธรรมาธิราช 9/9 หมู่ 9 ถนนแจ้งวัฒนะ ตำบลบางพูด อำเภอปากเกร็ด จังหวัดนนทบุรี 11120</p>
             </div>
 
             <div>
-              <p className="font-bold text-sky-950">2. วัตถุประสงค์ในการเก็บรวบรวมและใช้ข้อมูล (Purpose)</p>
+              <p className="font-bold text-[#00381D]">2. วัตถุประสงค์ในการเก็บรวบรวมและใช้ข้อมูล (Purpose)</p>
               <p className="text-slate-600">ใช้เพื่อการติดต่อกลับ ชี้แจงรายละเอียดหลักสูตร ขั้นตอนการสมัครเรียน และการให้คำปรึกษาทางการศึกษาตามความประสงค์ของท่าน</p>
             </div>
 
             <div>
-              <p className="font-bold text-sky-950">3. ระยะเวลาการเก็บรักษา (Retention Period)</p>
+              <p className="font-bold text-[#00381D]">3. ระยะเวลาการเก็บรักษา (Retention Period)</p>
               <p className="text-slate-600">จัดเก็บข้อมูลเป็นระยะเวลาไม่เกิน 1 ปีการศึกษา หรือจนกว่ากระบวนการแนะแนวและรับสมัครจะเสร็จสิ้น จากนั้นข้อมูลจะถูกลบหรือทำลายอย่างปลอดภัย</p>
             </div>
 
             <div>
-              <p className="font-bold text-sky-950">4. สิทธิของเจ้าของข้อมูลส่วนบุคคล (Your Rights)</p>
+              <p className="font-bold text-[#00381D]">4. สิทธิของเจ้าของข้อมูลส่วนบุคคล (Your Rights)</p>
               <p className="text-slate-600">ท่านมีสิทธิในการขอเข้าถึง ขอสำเนา ขอแก้ไข ขอระงับการใช้ ขอให้ลบทำลาย หรือขอถอนความยินยอมได้ตลอดเวลา โดยติดต่อผ่าน Call Center หรือศูนย์บริการ มสธ.</p>
             </div>
 
             <div>
-              <p className="font-bold text-sky-950">5. มาตรการรักษาความมั่นคงปลอดภัย (Security Safeguards)</p>
+              <p className="font-bold text-[#00381D]">5. มาตรการรักษาความมั่นคงปลอดภัย (Security Safeguards)</p>
               <p className="text-slate-600">ข้อมูลถูกส่งผ่านการเข้ารหัส HTTPS มาตรฐานสากล ไม่มีการบันทึก PII ใน Log ของระบบสาธารณะ และมีระบบป้องกันการสแกนหรือยิงข้อมูลอัตโนมัติ</p>
             </div>
           </motion.div>

@@ -10,8 +10,12 @@ import {
   GraduationCap,
   Users,
   Compass,
+  Award,
+  BookMarked,
+  Layers,
 } from 'lucide-react';
 import { COURSE_CATALOG_URL } from '../data/programs';
+import { STOU48Logo } from './STOU48Logo';
 
 interface WelcomeProps {
   onStart: () => void;
@@ -19,112 +23,163 @@ interface WelcomeProps {
 
 export const Welcome: React.FC<WelcomeProps> = ({ onStart }) => {
   return (
-    <div id="welcome-screen" className="w-full max-w-xl mx-auto px-4 py-6 sm:py-8 space-y-6">
-      {/* Hero Welcome Card */}
+    <div id="welcome-screen" className="w-full max-w-2xl mx-auto px-4 py-5 sm:py-8 space-y-6">
+      {/* Hero Welcome Card - University Prestige CI (Green, White, Gold) */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-gradient-to-b from-sky-950 via-sky-900 to-indigo-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-amber-500/20 text-center space-y-4 relative overflow-hidden"
+        transition={{ duration: 0.4 }}
+        className="bg-white rounded-3xl p-6 sm:p-8 shadow-md border-2 border-[#D4AF37]/30 text-center space-y-5 relative overflow-hidden"
       >
-        <div className="absolute top-0 right-0 transform translate-x-6 -translate-y-6 w-32 h-32 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
+        {/* Subtle Decorative Background Aura */}
+        <div className="absolute top-0 right-0 transform translate-x-8 -translate-y-8 w-44 h-44 bg-[#006837]/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 transform -translate-x-8 translate-y-8 w-44 h-44 bg-[#D4AF37]/10 rounded-full blur-3xl pointer-events-none" />
 
-        {/* Badge */}
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-400/20 text-amber-300 border border-amber-400/30">
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>แบบสำรวจความสนใจระดับปริญญาตรี มสธ.</span>
-        </div>
-
-        {/* Title */}
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-white leading-tight">
-          ค้นหาหลักสูตร มสธ. <br />
-          <span className="text-amber-400">ที่เหมาะกับคุณใน 5 นาที</span>
-        </h1>
-
-        <p className="text-sm sm:text-base text-slate-200 leading-relaxed max-w-md mx-auto">
-          ตอบคำถามสั้นๆ เพียง 6 ข้อ เพื่อสำรวจความถนัดและรับคำแนะนำ 3 กลุ่มสาขาวิชาที่ตรงกับเป้าหมายชีวิตและการทำงานของคุณมากที่สุด
-        </p>
-
-        {/* 3 Key Highlights */}
-        <div className="grid grid-cols-3 gap-2 pt-2 text-center text-xs">
-          <div className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/10">
-            <Clock className="w-5 h-5 text-amber-300 mx-auto mb-1" />
-            <p className="font-semibold text-white">ใช้เวลา</p>
-            <p className="text-slate-300 text-[11px]">ไม่เกิน 5 นาที</p>
+        {/* 48 Years STOU Logo Display */}
+        <div className="flex flex-col items-center justify-center pt-1">
+          <div className="bg-gradient-to-b from-white to-[#F8FAF8] p-3 sm:p-4 rounded-2xl shadow-sm border border-[#D4AF37]/30">
+            <STOU48Logo className="w-48 sm:w-56 h-auto" />
           </div>
 
-          <div className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/10">
-            <Compass className="w-5 h-5 text-amber-300 mx-auto mb-1" />
-            <p className="font-semibold text-white">6 คำถาม</p>
-            <p className="text-slate-300 text-[11px]">ตอบง่าย ชัดเจน</p>
-          </div>
-
-          <div className="bg-white/10 backdrop-blur-xs p-3 rounded-2xl border border-white/10">
-            <ShieldCheck className="w-5 h-5 text-amber-300 mx-auto mb-1" />
-            <p className="font-semibold text-white">ไม่ต้องลงทะเบียน</p>
-            <p className="text-slate-300 text-[11px]">รู้ผลทันที</p>
+          {/* Slogan Pill */}
+          <div className="mt-3.5 inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-bold bg-[#004D28] text-[#E5C158] border border-[#D4AF37]/40 shadow-xs">
+            <Sparkles className="w-3.5 h-3.5 text-[#E5C158]" />
+            <span>มสธ. มหาวิทยาลัยแห่งโอกาส (University of Opportunity)</span>
           </div>
         </div>
 
-        {/* Start Button */}
-        <div className="pt-3">
+        {/* Hero Title & Objective */}
+        <div className="space-y-2 max-w-lg mx-auto">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#00381D] leading-tight tracking-tight">
+            ค้นหาหลักสูตร มสธ. <br />
+            <span className="text-[#006837] bg-gradient-to-r from-[#006837] via-[#0B7A42] to-[#C59B27] bg-clip-text text-transparent">
+              ที่เหมาะสมกับคุณใน 5 นาที
+            </span>
+          </h1>
+
+          <div className="bg-[#F4F9F5] p-3.5 rounded-2xl border border-[#006837]/15 text-xs sm:text-sm text-[#00381D] leading-relaxed">
+            <p className="font-semibold text-[#004D28]">
+              วัตถุประสงค์: ทำแบบทดสอบ 5 นาที เพื่อค้นหาหลักสูตร มสธ. ที่เหมาะสมกับตนเอง
+            </p>
+            <p className="text-slate-600 text-xs mt-1">
+              ตอบคำถามสั้นๆ เพียง 6 ข้อ เพื่อสำรวจความถนัด และรับคำแนะนำ 3 กลุ่มสาขาวิชาที่ตรงกับเป้าหมายชีวิตและการทำงานของคุณมากที่สุด
+            </p>
+          </div>
+        </div>
+
+        {/* 3 Quick Features Bento/Card Grid */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3 pt-1 text-center">
+          <div className="bg-white p-3 rounded-2xl border border-[#006837]/15 shadow-2xs">
+            <div className="w-8 h-8 rounded-xl bg-[#F0F7F2] text-[#006837] mx-auto flex items-center justify-center mb-1.5 font-bold">
+              <Clock className="w-4 h-4 text-[#006837]" />
+            </div>
+            <p className="font-bold text-xs sm:text-sm text-[#00381D]">ใช้เวลา</p>
+            <p className="text-slate-500 text-[11px]">เพียง 5 นาที</p>
+          </div>
+
+          <div className="bg-white p-3 rounded-2xl border border-[#006837]/15 shadow-2xs">
+            <div className="w-8 h-8 rounded-xl bg-[#FDFBF2] text-[#B38918] mx-auto flex items-center justify-center mb-1.5 font-bold">
+              <Compass className="w-4 h-4 text-[#B38918]" />
+            </div>
+            <p className="font-bold text-xs sm:text-sm text-[#00381D]">6 คำถาม</p>
+            <p className="text-slate-500 text-[11px]">เข้าใจง่าย ชัดเจน</p>
+          </div>
+
+          <div className="bg-white p-3 rounded-2xl border border-[#006837]/15 shadow-2xs">
+            <div className="w-8 h-8 rounded-xl bg-[#F0F7F2] text-[#006837] mx-auto flex items-center justify-center mb-1.5 font-bold">
+              <ShieldCheck className="w-4 h-4 text-[#006837]" />
+            </div>
+            <p className="font-bold text-xs sm:text-sm text-[#00381D]">รู้ผลทันที</p>
+            <p className="text-slate-500 text-[11px]">ไม่ต้องลงทะเบียน</p>
+          </div>
+        </div>
+
+        {/* Primary CTA Start Button */}
+        <div className="pt-2">
           <motion.button
             id="btn-start-quiz"
             type="button"
             onClick={onStart}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full py-4 px-6 rounded-2xl font-bold text-base sm:text-lg bg-gradient-to-r from-amber-400 via-amber-400 to-amber-500 text-sky-950 shadow-lg hover:brightness-105 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            whileHover={{ scale: 1.015 }}
+            whileTap={{ scale: 0.985 }}
+            className="w-full py-4 px-6 rounded-2xl font-bold text-base sm:text-lg bg-gradient-to-r from-[#004D28] via-[#006837] to-[#0B7A42] text-[#E5C158] border-2 border-[#D4AF37]/50 shadow-lg hover:brightness-110 active:scale-[0.99] transition-all flex items-center justify-center gap-2.5 cursor-pointer"
           >
-            <span>เริ่มทำแบบทดสอบเลย</span>
+            <span>เริ่มทำแบบทดสอบ 5 นาทีเลย</span>
             <ArrowRight className="w-5 h-5 stroke-[2.5]" />
           </motion.button>
         </div>
       </motion.div>
 
-      {/* Why STOU Card */}
+      {/* University Excellence Cards (Why STOU) */}
       <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-6 space-y-4 shadow-sm">
-        <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          <GraduationCap className="w-5 h-5 text-sky-900" />
-          <span>ทำไมต้องเรียนปริญญาตรีที่ มสธ.?</span>
-        </h2>
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h2 className="text-sm sm:text-base font-bold text-[#00381D] flex items-center gap-2">
+            <GraduationCap className="w-5 h-5 text-[#006837]" />
+            <span>ทำไมต้องเรียนปริญญาตรีที่ มสธ.?</span>
+          </h2>
+          <span className="text-xs font-semibold text-[#B38918] bg-[#FDFBF2] px-2.5 py-0.5 rounded-full border border-[#D4AF37]/30">
+            48 ปีแห่งเกียรติภูมิ
+          </span>
+        </div>
 
-        <div className="space-y-2.5 text-xs sm:text-sm text-slate-700">
-          <div className="flex items-start gap-2.5">
-            <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <p><strong>เรียนได้ทุกที่ ทุกเวลา:</strong> ระบบการเรียนรู้ทางไกล ยืดหยุ่น เหมาะสำหรับคนทำงานและทุกช่วงวัย</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs sm:text-sm text-slate-700">
+          <div className="bg-[#F8FAF9] p-3.5 rounded-2xl border border-slate-100 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-[#004D28]">
+              <CheckCircle className="w-4 h-4 text-[#006837] flex-shrink-0" />
+              <span>เรียนได้ทุกที่ ทุกเวลา</span>
+            </div>
+            <p className="text-slate-600 text-xs leading-relaxed">
+              ระบบการศึกษาทางไกลมาตรฐาน ยืดหยุ่น จัดเวลาเรียนเองได้ ไม่กระทบงานประจำ
+            </p>
           </div>
-          <div className="flex items-start gap-2.5">
-            <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <p><strong>ประหยัดค่าใช้จ่าย:</strong> ค่าธรรมเนียมการศึกษาแบบเหมาจ่ายคุ้มค่า พร้อมชุดสื่อการเรียนครบครัน</p>
+
+          <div className="bg-[#F8FAF9] p-3.5 rounded-2xl border border-slate-100 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-[#004D28]">
+              <CheckCircle className="w-4 h-4 text-[#006837] flex-shrink-0" />
+              <span>ประหยัดค่าใช้จ่าย</span>
+            </div>
+            <p className="text-slate-600 text-xs leading-relaxed">
+              ค่าธรรมเนียมแบบเหมาจ่ายคุ้มค่า พร้อมชุดสื่อตำราเรียนส่งตรงถึงบ้าน
+            </p>
           </div>
-          <div className="flex items-start gap-2.5">
-            <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <p><strong>วุฒิการศึกษามาตรฐานสากล:</strong> ก.พ. และหน่วยงานภาครัฐ-เอกชนรับรองคุณวุฒิ ใช้สอบและปรับเงินเดือนได้จริง</p>
+
+          <div className="bg-[#F8FAF9] p-3.5 rounded-2xl border border-slate-100 space-y-1">
+            <div className="flex items-center gap-1.5 font-bold text-[#004D28]">
+              <CheckCircle className="w-4 h-4 text-[#006837] flex-shrink-0" />
+              <span>ก.พ. และสากลรับรอง</span>
+            </div>
+            <p className="text-slate-600 text-xs leading-relaxed">
+              วุฒิปริญญามาตรฐาน ใช้สอบแข่งขัน เลื่อนตำแหน่ง และต่อยอดปริญญาโท-เอกได้
+            </p>
           </div>
         </div>
 
-        <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-          <span className="text-xs text-slate-500">12 สาขาวิชาครอบคลุมทุกศาสตร์</span>
+        <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+          <span className="text-slate-500 flex items-center gap-1">
+            <Layers className="w-3.5 h-3.5 text-[#006837]" />
+            <span>12 กลุ่มสาขาวิชา ครอบคลุมทุกสายอาชีพแห่งอนาคต</span>
+          </span>
           <a
             id="link-welcome-catalog"
             href={COURSE_CATALOG_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs font-semibold text-sky-900 hover:text-sky-950 inline-flex items-center gap-1"
+            className="font-bold text-[#004D28] hover:text-[#006837] inline-flex items-center gap-1 hover:underline"
           >
             <BookOpen className="w-3.5 h-3.5" />
-            <span>ดูคู่มือหลักสูตรทั้งหมด</span>
+            <span>เปิดดูคู่มือหลักสูตรทั้งหมด</span>
           </a>
         </div>
       </div>
 
-      {/* Note for exhibition visitors */}
-      <div className="text-center text-xs text-slate-500 space-y-1">
-        <p className="flex items-center justify-center gap-1">
-          <Users className="w-3.5 h-3.5 text-sky-900" />
-          <span>สำหรับผู้เข้าชมนิทรรศการและผู้สนใจศึกษาต่อ มหาวิทยาลัยสุโขทัยธรรมาธิราช</span>
+      {/* Exhibition & Booth helper badge */}
+      <div className="text-center text-xs text-slate-500 py-1">
+        <p className="flex items-center justify-center gap-1.5">
+          <Users className="w-3.5 h-3.5 text-[#006837]" />
+          <span>สำหรับผู้เข้าชมนิทรรศการ บูธแนะนำการศึกษา และผู้สนใจศึกษาต่อ มสธ.</span>
         </p>
       </div>
     </div>
   );
 };
+

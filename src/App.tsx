@@ -131,11 +131,11 @@ export default function App() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-sky-950 text-slate-400 text-xs py-5 px-4 border-t border-amber-500/20 text-center space-y-1 mt-auto">
-        <p className="font-medium text-slate-300">
+      <footer className="bg-[#002B16] text-slate-300 text-xs py-5 px-4 border-t-2 border-[#D4AF37]/40 text-center space-y-1 mt-auto">
+        <p className="font-semibold text-[#E5C158]">
           มหาวิทยาลัยสุโขทัยธรรมาธิราช (มสธ.) | Sukhothai Thammathirat Open University (STOU)
         </p>
-        <p className="text-[11px] text-slate-400">
+        <p className="text-[11px] text-slate-300">
           ระบบประมวลผลคำแนะนำหลักสูตรเบื้องต้น • ออกแบบสำหรับผู้ใช้งานบนโทรศัพท์มือถือและนิทรรศการ
         </p>
       </footer>
