@@ -1,0 +1,6 @@
+{
+  "name": "ค้นหาหลักสูตร มสธ. ที่เหมาะกับคุณใน 5 นาที",
+  "description": "เว็บแอปพลิเคชันค้นหาหลักสูตรและสาขาวิชา มสธ. ที่เหมาะกับคุณใน 5 นาที ผ่านแบบทดสอบ 6 ข้อ สำหรับมหาวิทยาลัยสุโขทัยธรรมาธิราช",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
