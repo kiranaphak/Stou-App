@@ -594,7 +594,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
                   type="password"
                   value={passwordInput}
                   onChange={(e) => setPasswordInput(e.target.value)}
-                  placeholder="กรอกรหัสผ่าน (ค่าเริ่มต้น: stou2569)"
+                  placeholder="กรอกรหัสผ่านผู้ดูแลระบบ"
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837] text-sm text-slate-900"
                 />
                 <Lock className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
