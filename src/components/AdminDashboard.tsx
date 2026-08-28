@@ -1055,6 +1055,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
         <div ref={printableReportRef}>
           <PrintableReportDocument
             stats={aggregatedStats}
+            meta={reportMeta}
             metadata={reportMeta}
           />
         </div>

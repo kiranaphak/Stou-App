@@ -19,9 +19,22 @@ import {
 import { AggregatedStats, ReportMetadata } from '../utils/excelExporter';
 
 interface PrintableReportProps {
-  meta: ReportMetadata;
+  meta?: ReportMetadata;
+  metadata?: ReportMetadata;
   stats: AggregatedStats;
 }
+
+const defaultReportMetadata: ReportMetadata = {
+  title: 'รายงานสรุปสถิติการใช้งาน Web app ค้นหาเส้นทางเรียน มสธ. ที่ใช่สำหรับคุณ',
+  agency: 'ศูนย์วิทยบริการและชุมชนสัมพันธ์ มสธ. ลำปาง',
+  dateRangeText: 'วันนี้ (Asia/Bangkok)',
+  generatedAtText: new Date().toLocaleDateString('th-TH'),
+  appVersion: '1.0.0',
+  quizVersion: '2569-v1',
+  dataSource: 'Firestore Real-time DB',
+  privacyDisclaimer:
+    'รายงานนี้เป็นข้อมูลสรุปเชิงสถิติแบบไม่ระบุตัวตน (Anonymous Analytics) ไม่มีการจัดเก็บข้อมูลส่วนบุคคล (No PII)',
+};
 
 const interestLabelMap: Record<string, string> = {
   people: 'ผู้คน การดูแล การสอน และการพัฒนา',
@@ -33,7 +46,9 @@ const interestLabelMap: Record<string, string> = {
   technology: 'ดิจิทัล ข้อมูล คอมพิวเตอร์ และเทคโนโลยี',
 };
 
-export const PrintableReportDocument: React.FC<PrintableReportProps> = ({ meta, stats }) => {
+export const PrintableReportDocument: React.FC<PrintableReportProps> = ({ meta, metadata, stats }) => {
+  const activeMeta = meta || metadata || defaultReportMetadata;
+
   const formatMin5 = (num: number) => {
     if (num === 0) return 0;
     if (num < 5) return '< 5';
@@ -75,17 +90,17 @@ export const PrintableReportDocument: React.FC<PrintableReportProps> = ({ meta, 
                 มหาวิทยาลัยสุโขทัยธรรมาธิราช
               </h1>
               <p className="text-xs sm:text-sm font-bold text-[#8B6B15]">
-                {meta.agency}
+                {activeMeta.agency}
               </p>
               <p className="text-sm sm:text-base font-extrabold text-slate-800 mt-1">
-                {meta.title}
+                {activeMeta.title}
               </p>
             </div>
           </div>
           <div className="text-right text-[11px] text-slate-500 space-y-0.5 flex-shrink-0">
-            <p><strong>ช่วงข้อมูล:</strong> {meta.dateRangeText}</p>
-            <p><strong>สร้างรายงานเมื่อ:</strong> {meta.generatedAtText}</p>
-            <p><strong>เวอร์ชัน:</strong> {meta.quizVersion} (v{meta.appVersion})</p>
+            <p><strong>ช่วงข้อมูล:</strong> {activeMeta.dateRangeText}</p>
+            <p><strong>สร้างรายงานเมื่อ:</strong> {activeMeta.generatedAtText}</p>
+            <p><strong>เวอร์ชัน:</strong> {activeMeta.quizVersion} (v{activeMeta.appVersion})</p>
             <p className="text-emerald-800 font-bold">ออกแบบและพัฒนาระบบโดย กิรณาภัค สระทองพูน</p>
           </div>
         </div>
@@ -93,7 +108,7 @@ export const PrintableReportDocument: React.FC<PrintableReportProps> = ({ meta, 
         {/* Executive Notice Banner */}
         <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-[#006837] flex-shrink-0" />
-          <span>{meta.privacyDisclaimer}</span>
+          <span>{activeMeta.privacyDisclaimer}</span>
         </div>
 
         {/* Section 1: Executive KPI Cards (คนใช้แอปจริงไหม สนใจเรียนอะไร และสนใจลงลึกหรือไม่) */}
