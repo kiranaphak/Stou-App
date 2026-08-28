@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 240" fill="none">
+  <defs>
+    <linearGradient id="pGrad1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#004D28" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#006837" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#E5C158" stop-opacity="0.9" />
+    </linearGradient>
+    <linearGradient id="pGrad2" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E5C158" stop-opacity="0.3" />
+      <stop offset="50%" stop-color="#004D28" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#006837" stop-opacity="0.4" />
+    </linearGradient>
+    <linearGradient id="nGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF2B2" />
+      <stop offset="100%" stop-color="#D4AF37" />
+    </linearGradient>
+    <linearGradient id="nGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2E8B57" />
+      <stop offset="100%" stop-color="#004D28" />
+    </linearGradient>
+  </defs>
+
+  <rect width="600" height="240" rx="24" fill="#F4FAF6" />
+  <circle cx="530" cy="50" r="100" fill="#E5C158" fill-opacity="0.08" />
+  <circle cx="70" cy="180" r="80" fill="#004D28" fill-opacity="0.05" />
+
+  <!-- Flowing Pathways -->
+  <path d="M30 150 C 120 180, 180 80, 300 110 C 420 140, 480 70, 570 90" stroke="url(#pGrad1)" stroke-width="4" stroke-linecap="round" stroke-dasharray="6 6" />
+  <path d="M30 120 C 140 60, 220 170, 330 140 C 440 110, 500 160, 570 130" stroke="url(#pGrad2)" stroke-width="3.5" stroke-linecap="round" />
+  <path d="M100 200 C 220 220, 260 90, 400 70 C 470 60, 510 110, 560 170" stroke="#006837" stroke-width="1.5" stroke-opacity="0.3" stroke-dasharray="4 4" />
+
+  <!-- Nodes -->
+  <g transform="translate(100, 150)">
+    <circle cx="0" cy="0" r="16" fill="#FFFFFF" stroke="#004D28" stroke-width="2.5" />
+    <circle cx="0" cy="0" r="8" fill="url(#nGreen)" />
+    <text x="0" y="28" text-anchor="middle" font-size="10" font-weight="700" fill="#004D28" font-family="'Prompt', sans-serif">จุดเริ่มต้น</text>
+  </g>
+
+  <g transform="translate(230, 85)">
+    <circle cx="0" cy="0" r="18" fill="#FFFFFF" stroke="#D4AF37" stroke-width="3" />
+    <circle cx="0" cy="0" r="9" fill="url(#nGold)" />
+    <text x="0" y="-24" text-anchor="middle" font-size="10" font-weight="700" fill="#8B6B15" font-family="'Prompt', sans-serif">สัมฤทธิบัตร</text>
+  </g>
+
+  <g transform="translate(360, 135)">
+    <circle cx="0" cy="0" r="22" fill="#FFFFFF" stroke="#004D28" stroke-width="3.5" />
+    <circle cx="0" cy="0" r="12" fill="url(#nGreen)" />
+    <text x="0" y="34" text-anchor="middle" font-size="11" font-weight="800" fill="#00381D" font-family="'Prompt', sans-serif">ปริญญาตรี มสธ.</text>
+  </g>
+
+  <g transform="translate(490, 80)">
+    <circle cx="0" cy="0" r="19" fill="#FFFFFF" stroke="#D4AF37" stroke-width="3" />
+    <circle cx="0" cy="0" r="10" fill="url(#nGold)" />
+    <text x="0" y="-25" text-anchor="middle" font-size="10" font-weight="700" fill="#8B6B15" font-family="'Prompt', sans-serif">บัณฑิตศึกษา</text>
+  </g>
+
+  <circle cx="170" cy="115" r="3" fill="#006837" />
+  <circle cx="430" cy="100" r="4" fill="#E5C158" />
+  <circle cx="290" cy="180" r="2.5" fill="#004D28" />
+
+  <g transform="translate(300, 32)">
+    <rect x="-85" y="-12" width="170" height="24" rx="12" fill="#004D28" />
+    <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#E5C158" font-family="'Prompt', sans-serif">✦ โอกาสการเรียนรู้ตลอดชีวิต</text>
+  </g>
+</svg>

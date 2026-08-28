@@ -1,0 +1,61 @@
+{
+  "entities": {
+    "quizSessions": {
+      "title": "Quiz Session",
+      "description": "Anonymous quiz completion records and pathway recommendations for STOU Curriculum Finder",
+      "type": "object",
+      "properties": {
+        "sessionId": { "type": "string", "description": "Random anonymous session identifier from sessionStorage" },
+        "completedAt": { "type": "string", "format": "date-time", "description": "Timestamp of quiz completion" },
+        "appVersion": { "type": "string", "description": "Semantic version of the application" },
+        "answers": {
+          "type": "object",
+          "properties": {
+            "lifeStage": { "type": "string" },
+            "learningGoal": { "type": "string" },
+            "desiredOutcome": { "type": "string" },
+            "interestArea": { "type": "string" },
+            "futureUse": { "type": "string" },
+            "learningFormat": { "type": "string" }
+          },
+          "required": ["lifeStage", "learningGoal", "desiredOutcome", "interestArea", "futureUse", "learningFormat"]
+        },
+        "scores": {
+          "type": "object",
+          "properties": {
+            "careerScore": { "type": "number" },
+            "degreeScore": { "type": "number" },
+            "upskillScore": { "type": "number" }
+          },
+          "required": ["careerScore", "degreeScore", "upskillScore"]
+        },
+        "primaryPersona": { "type": "string" },
+        "recommendedPrograms": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "rank": { "type": "number" },
+              "schoolCode": { "type": "string" },
+              "schoolName": { "type": "string" },
+              "programId": { "type": "string" },
+              "programName": { "type": "string" },
+              "trackName": { "type": ["string", "null"] },
+              "majorName": { "type": ["string", "null"] },
+              "recommendationScore": { "type": "number" }
+            }
+          }
+        }
+      },
+      "required": ["sessionId", "completedAt", "appVersion", "answers", "scores", "primaryPersona", "recommendedPrograms"]
+    }
+  },
+  "securityRules": {
+    "quizSessions": {
+      "read": "true",
+      "create": "request.resource.data.sessionId is string",
+      "update": "false",
+      "delete": "false"
+    }
+  }
+}

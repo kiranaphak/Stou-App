@@ -1,91 +1,183 @@
-export type ProgramId =
-  | 'management'
-  | 'economics'
-  | 'law'
-  | 'political_science'
-  | 'health_science'
-  | 'human_ecology'
-  | 'education'
-  | 'liberal_arts'
-  | 'agriculture'
-  | 'communication_arts'
-  | 'science_tech'
-  | 'nursing';
+export type PathwayId = 'career' | 'degree' | 'upskill';
+export type ProgramId = string;
 
-export interface Program {
-  id: ProgramId;
-  name: string;
-  shortName: string;
-  englishName: string;
-  description: string;
-  highlightMajors: string[];
-  careerPaths: string[];
-  iconName: string;
-  badgeText: string;
-  catalogUrl: string;
+export interface ScoreWeights {
+  careerScore: number;
+  degreeScore: number;
+  upskillScore: number;
 }
 
-export interface QuestionOption {
+export interface QuizOption {
   id: string;
-  text: string;
-  subtext?: string;
+  label: string;
+  sublabel?: string;
+  scores: ScoreWeights;
   iconName?: string;
-  weights: Partial<Record<ProgramId, number>>;
-  reasonSnippet: string; // Explanatory reason when chosen
 }
 
-export interface Question {
+export interface QuizQuestion {
   id: number;
   numberText: string;
   title: string;
   subtitle?: string;
-  options: QuestionOption[];
+  options: QuizOption[];
 }
 
-export interface AnswerRecord {
-  questionId: number;
-  optionId: string;
+export interface PathwayResult {
+  id: PathwayId;
+  name: string;
+  tagline: string;
+  targetAudience: string;
+  description: string;
+  recommendedPaths: string[];
+  iconName: string;
+  badgeText: string;
+  ctaText: string;
 }
 
-export interface ScoredProgram {
-  program: Program;
-  score: number;
+export interface MatchedMajorInfo {
+  id: string;
+  name: string;
+  trackName?: string;
+  description?: string;
+}
+
+export interface CareerPathDetail {
+  title: string;
+  description: string;
+  note?: string;
+}
+
+export interface RecommendedProgramResult {
   rank: number;
-  matchPercentage: number;
-  reasons: string[];
+  schoolCode: string;
+  schoolName: string;
+  programId: string;
+  programName: string;
+  degreeName: string;
+  trackName?: string | null;
+  majorName?: string | null;
+  recommendationScore: number;
+  matchedMajors: MatchedMajorInfo[];
+  fitReasons: string[];
+  careerPaths: string[];
+  careerPathDetails?: CareerPathDetail[];
+  allCareerPaths?: string[];
+  careerNotes?: string[];
+  detailUrl: string;
+  iconName: string;
+}
+
+export interface ScoringResult {
+  primaryPathway: PathwayResult;
+  allPathwayScores: {
+    pathway: PathwayResult;
+    score: number;
+    rank: number;
+  }[];
+  scores: ScoreWeights;
+  topRecommendedPrograms: RecommendedProgramResult[];
+  answers: UserAnswers;
+  primaryPersonaKey: PathwayId;
+  interestLabel: string;
+  // Backward compatibility
+  matchedFields?: FieldOfStudy[];
+  canAccessGraduate?: boolean;
+  selectedInterest?: string;
+}
+
+export interface UserAnswers {
+  lifeStage?: string; // Q1: student | working | entrepreneur | transition | lifelong
+  learningGoal?: string; // Q2: degree | career | career_change | specific_skill | personal
+  desiredOutcome?: string; // Q3: degree | certificate | practical_skill | explore
+  interestArea?: string; // Q4: people | business | law_society | communication | health | agriculture | technology
+  futureUse?: string; // Q5: career_growth | new_career | job_security | community | digital_portfolio
+  learningFormat?: string; // Q6: bachelor | graduate | certificate | explore
+
+  // Legacy field support
+  q1_stage?: string;
+  q2_education?: string;
+  q3_hours?: string;
+  q4_goal?: string;
+  q5_outcome?: string;
+  q6_interest?: string;
+}
+
+export interface FieldOfStudy {
+  id: string;
+  name: string;
+  englishName: string;
+  description: string;
+  highlightPrograms: string;
+  careerOpportunities: string;
+  iconName: string;
+  url: string;
+}
+
+export interface Program {
+  id: string;
+  name: string;
+  shortName?: string;
+  englishName: string;
+  degreeLevel?: string;
+  description: string;
+  suitableFor?: string;
+  duration?: string;
+  admissionRequirements?: string;
+  iconName: string;
+  features?: string[];
+  highlightTag?: string;
+  highlightMajors?: string[];
+  careerPaths?: string[];
+  badgeText?: string;
+  catalogUrl?: string;
+  targetCareer?: string;
+  url?: string;
 }
 
 export interface ConsultationFormData {
-  fullName: string;
-  contactType: 'phone' | 'line' | 'email';
-  contactValue: string;
-  selectedPrograms: string[];
-  studyBackground?: string;
-  convenientTime?: string;
-  inquiryNote?: string;
-  consentInfo: boolean;
-  consentNews: boolean;
-}
-
-export interface LeadSubmissionPayload {
-  lead_id?: string;
-  created_at?: string;
-  event_name?: string;
-  source_qr?: string;
-  quiz_recommendations?: string;
-  full_name: string;
-  contact_type: 'phone' | 'line' | 'email';
-  contact_value: string;
-  interest_topics?: string;
-  contact_request?: string;
-  consent_info: boolean;
-  consent_news?: boolean;
-  privacy_version?: string;
+  name: string;
+  phone: string;
+  lineId?: string;
+  interestField: string;
+  preferredPathway: string;
+  note?: string;
+  consentAgreed: boolean;
 }
 
 export interface LeadSubmissionResponse {
   success: boolean;
-  lead_id?: string;
-  message?: string;
+  message: string;
+  leadId?: string;
   error?: string;
+}
+
+export interface AnonymousQuizSessionPayload {
+  sessionId: string;
+  completedAt: any;
+  appVersion: string;
+  answers: {
+    lifeStage: string;
+    learningGoal: string;
+    desiredOutcome: string;
+    interestArea: string;
+    futureUse: string;
+    learningFormat: string;
+  };
+  scores: {
+    careerScore: number;
+    degreeScore: number;
+    upskillScore: number;
+  };
+  primaryPersona: string;
+  recommendedPrograms: {
+    rank: number;
+    schoolCode: string;
+    schoolName: string;
+    programId: string;
+    programName: string;
+    trackName: string | null;
+    majorName: string | null;
+    recommendationScore: number;
+  }[];
 }

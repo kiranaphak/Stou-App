@@ -17,8 +17,11 @@ import {
   HeartPulse,
   Landmark,
   Languages,
+  Leaf,
   Lightbulb,
+  Megaphone,
   MessageSquare,
+  PlusCircle,
   Radio,
   Scale,
   ShieldAlert,
@@ -26,12 +29,13 @@ import {
   Sparkles,
   Sprout,
   Stethoscope,
+  Target,
   Terminal,
   TrendingUp,
   Users,
   Utensils,
   Wheat,
-  Code,
+  Zap,
   HelpCircle,
 } from 'lucide-react';
 
@@ -59,7 +63,13 @@ export const IconHelper: React.FC<IconHelperProps> = ({ name, className = 'w-6 h
     case 'Languages':
       return <Languages className={className} />;
     case 'Sprout':
-      return <Sprout className={className} />;
+    case 'Leaf':
+      return <Leaf className={className} />;
+    case 'Megaphone':
+      return <Megaphone className={className} />;
+    case 'Cross':
+    case 'PlusCircle':
+      return <PlusCircle className={className} />;
     case 'Radio':
       return <Radio className={className} />;
     case 'Cpu':
@@ -78,8 +88,6 @@ export const IconHelper: React.FC<IconHelperProps> = ({ name, className = 'w-6 h
       return <Globe className={className} />;
     case 'FileText':
       return <FileText className={className} />;
-    case 'Code':
-      return <Code className={className} />;
     case 'Sparkles':
       return <Sparkles className={className} />;
     case 'BadgeDollarSign':
@@ -106,6 +114,10 @@ export const IconHelper: React.FC<IconHelperProps> = ({ name, className = 'w-6 h
       return <MessageSquare className={className} />;
     case 'CheckCircle2':
       return <CheckCircle2 className={className} />;
+    case 'Target':
+      return <Target className={className} />;
+    case 'Zap':
+      return <Zap className={className} />;
     default:
       return <HelpCircle className={className} />;
   }
