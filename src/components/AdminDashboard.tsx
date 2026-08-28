@@ -33,16 +33,24 @@ import {
   Share2,
   ExternalLink,
   FileDown,
+  Database,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { toJpeg } from 'html-to-image';
 import {
+  subscribeToRealtimeAdminData,
   fetchQuizSessionsForAdmin,
   fetchAnalyticsMetrics,
-  fetchAnalyticsEvents,
   resetAdminAnalyticsAndSessions,
+  signInAdminWithGoogle,
+  adminSignOut,
+  onAdminAuthChange,
+  InteractionEventPayload,
   APP_VERSION,
+  FIREBASE_PROJECT_ID,
 } from '../lib/firebase';
 import { AnonymousQuizSessionPayload } from '../types';
 import { QUIZ_QUESTIONS } from '../data/questions';
@@ -52,6 +60,12 @@ import {
   generateExcelWorkbook,
 } from '../utils/excelExporter';
 import { PrintableReportDocument } from './PrintableReportDocument';
+import {
+  formatBangkokDateTime,
+  getBangkokStartOfDayTimestamp,
+  parseBangkokDateToStartMs,
+  parseBangkokDateToEndMs,
+} from '../utils/bangkokTime';
 
 interface AdminDashboardProps {
   onBackToApp: () => void;
@@ -59,18 +73,23 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminUser, setAdminUser] = useState<any>(null);
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('');
+  const [syncErrorNotice, setSyncErrorNotice] = useState<string | null>(null);
+
   const [exportingPDF, setExportingPDF] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
 
   const [sessions, setSessions] = useState<AnonymousQuizSessionPayload[]>([]);
+  const [rawEvents, setRawEvents] = useState<InteractionEventPayload[]>([]);
   const [rawMetrics, setRawMetrics] = useState<Record<string, number>>({});
-  const [rawEvents, setRawEvents] = useState<{ eventName: string; payload: any }[]>([]);
 
-  // Filtering states
-  const [dateFilter, setDateFilter] = useState<'today' | '7days' | '30days' | 'all' | 'custom'>('all');
+  // Filtering states: Default to 'today' (Asia/Bangkok) as required
+  const [dateFilter, setDateFilter] = useState<'today' | '7days' | '30days' | 'all' | 'custom'>('today');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [personaFilter, setPersonaFilter] = useState<string>('all');
@@ -90,32 +109,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
   const printableReportRef = useRef<HTMLDivElement>(null);
   const defaultAdminPass = 'stou2569';
 
-  // Load data
-  const loadDashboardData = async () => {
-    setLoading(true);
-    try {
-      const [fetchedSessions, metrics, events] = await Promise.all([
-        fetchQuizSessionsForAdmin(),
-        fetchAnalyticsMetrics(),
-        fetchAnalyticsEvents(),
-      ]);
-      setSessions(fetchedSessions);
-      setRawMetrics(metrics);
-      setRawEvents(events);
-    } catch (e) {
-      console.warn('Dashboard data fetch note:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Listen to Auth changes
   useEffect(() => {
-    if (isAuthenticated) {
-      loadDashboardData();
-    }
+    const unsubAuth = onAdminAuthChange((user, isAdmin) => {
+      setAdminUser(user);
+      if (user && isAdmin) {
+        setIsAuthenticated(true);
+      }
+    });
+    return () => unsubAuth();
+  }, []);
+
+  // Real-time Firestore Subscriptions
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    setLoading(true);
+    const unsubscribe = subscribeToRealtimeAdminData({
+      onSessions: (fetchedSessions) => {
+        setSessions(fetchedSessions);
+        setLastSyncTime(formatBangkokDateTime(new Date()));
+        setSyncErrorNotice(null);
+        setLoading(false);
+      },
+      onEvents: (fetchedEvents) => {
+        setRawEvents(fetchedEvents);
+        setLastSyncTime(formatBangkokDateTime(new Date()));
+      },
+      onError: (err) => {
+        console.warn('Realtime subscription note (using offline cached data):', err);
+        setSyncErrorNotice('ไม่สามารถซิงก์ข้อมูลล่าสุดได้ กำลังแสดงข้อมูลที่มีอยู่');
+        setLoading(false);
+      },
+      onSyncing: (syncing) => {
+        setIsSyncing(syncing);
+      },
+    });
+
+    // Also fetch local analytics for fallback metrics
+    const localM = fetchAnalyticsMetrics();
+    setRawMetrics(localM);
+
+    return () => {
+      unsubscribe();
+    };
   }, [isAuthenticated]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handlePasswordLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (passwordInput.trim() === defaultAdminPass || passwordInput.trim() === 'admin') {
       setIsAuthenticated(true);
@@ -125,32 +165,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
     }
   };
 
-  // 1. Filtered Sessions by Date and Persona
+  const handleGoogleLogin = async () => {
+    setAuthError('');
+    const { user, isAdmin, error } = await signInAdminWithGoogle();
+    if (error) {
+      setAuthError(error);
+    } else if (user) {
+      setAdminUser(user);
+      setIsAuthenticated(true);
+    }
+  };
+
+  const handleLogout = async () => {
+    await adminSignOut();
+    setAdminUser(null);
+    setIsAuthenticated(false);
+    setPasswordInput('');
+  };
+
+  // 1. Filtered Sessions by Bangkok Timezone Date Range and Persona
   const filteredSessions = useMemo(() => {
     return sessions.filter((s) => {
-      // Date filter
+      // Date filtering with Asia/Bangkok boundaries
       if (s.completedAt) {
-        const sessionDate = new Date(s.completedAt).getTime();
-        const now = Date.now();
+        const sessionMs = new Date(s.completedAt).getTime();
 
         if (dateFilter === 'today') {
-          const diffDays = (now - sessionDate) / (1000 * 3600 * 24);
-          if (diffDays > 1) return false;
+          const todayStartMs = getBangkokStartOfDayTimestamp(0);
+          if (sessionMs < todayStartMs) return false;
         } else if (dateFilter === '7days') {
-          const diffDays = (now - sessionDate) / (1000 * 3600 * 24);
-          if (diffDays > 7) return false;
+          const sevenDaysStartMs = getBangkokStartOfDayTimestamp(7);
+          if (sessionMs < sevenDaysStartMs) return false;
         } else if (dateFilter === '30days') {
-          const diffDays = (now - sessionDate) / (1000 * 3600 * 24);
-          if (diffDays > 30) return false;
+          const thirtyDaysStartMs = getBangkokStartOfDayTimestamp(30);
+          if (sessionMs < thirtyDaysStartMs) return false;
         } else if (dateFilter === 'custom') {
-          if (customStartDate) {
-            const start = new Date(customStartDate).getTime();
-            if (sessionDate < start) return false;
-          }
-          if (customEndDate) {
-            const end = new Date(customEndDate).getTime() + 86400000;
-            if (sessionDate > end) return false;
-          }
+          const startMs = parseBangkokDateToStartMs(customStartDate);
+          const endMs = parseBangkokDateToEndMs(customEndDate);
+          if (startMs && sessionMs < startMs) return false;
+          if (endMs && sessionMs > endMs) return false;
         }
       }
 
@@ -163,69 +216,66 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
     });
   }, [sessions, dateFilter, customStartDate, customEndDate, personaFilter]);
 
-  // 2. Filtered Events
+  // 2. Filtered Events by Bangkok Timezone
   const filteredEvents = useMemo(() => {
     return rawEvents.filter((ev) => {
-      if (ev.payload?.timestamp) {
-        const evDate = new Date(ev.payload.timestamp).getTime();
-        const now = Date.now();
+      if (ev.occurredAt) {
+        const evMs = new Date(ev.occurredAt).getTime();
 
         if (dateFilter === 'today') {
-          const diffDays = (now - evDate) / (1000 * 3600 * 24);
-          if (diffDays > 1) return false;
+          const todayStartMs = getBangkokStartOfDayTimestamp(0);
+          if (evMs < todayStartMs) return false;
         } else if (dateFilter === '7days') {
-          const diffDays = (now - evDate) / (1000 * 3600 * 24);
-          if (diffDays > 7) return false;
+          const sevenDaysStartMs = getBangkokStartOfDayTimestamp(7);
+          if (evMs < sevenDaysStartMs) return false;
         } else if (dateFilter === '30days') {
-          const diffDays = (now - evDate) / (1000 * 3600 * 24);
-          if (diffDays > 30) return false;
+          const thirtyDaysStartMs = getBangkokStartOfDayTimestamp(30);
+          if (evMs < thirtyDaysStartMs) return false;
         } else if (dateFilter === 'custom') {
-          if (customStartDate) {
-            const start = new Date(customStartDate).getTime();
-            if (evDate < start) return false;
-          }
-          if (customEndDate) {
-            const end = new Date(customEndDate).getTime() + 86400000;
-            if (evDate > end) return false;
-          }
+          const startMs = parseBangkokDateToStartMs(customStartDate);
+          const endMs = parseBangkokDateToEndMs(customEndDate);
+          if (startMs && evMs < startMs) return false;
+          if (endMs && evMs > endMs) return false;
         }
       }
       return true;
     });
   }, [rawEvents, dateFilter, customStartDate, customEndDate]);
 
-  // 3. Compute Aggregated Metrics
+  // 3. Compute Aggregated Metrics (Single Source of Truth: Firestore Sessions + Interaction Events)
   const aggregatedStats: AggregatedStats = useMemo(() => {
-    const completed = filteredSessions.length || (dateFilter === 'all' ? rawMetrics['quiz_completed'] || 0 : 0);
-    const started = Math.max(completed, filteredEvents.filter((e) => e.eventName === 'quiz_started').length || (dateFilter === 'all' ? rawMetrics['quiz_started'] || 0 : completed));
-    const views = Math.max(started, filteredEvents.filter((e) => e.eventName === 'quiz_viewed').length || (dateFilter === 'all' ? rawMetrics['quiz_viewed'] || 0 : started));
-    const restarted = filteredEvents.filter((e) => e.eventName === 'quiz_restarted').length || (dateFilter === 'all' ? rawMetrics['quiz_restarted'] || 0 : 0);
+    const completed = filteredSessions.length;
+    const detailClicks = filteredEvents.filter((e) => e.eventType === 'detail_clicked').length;
+    const restarted = filteredEvents.filter((e) => e.eventType === 'quiz_restarted').length;
 
-    const detailClicks = filteredEvents.filter((e) => e.eventName === 'result_detail_clicked').length || (dateFilter === 'all' ? rawMetrics['result_detail_clicked'] || 0 : 0);
-
+    // Lampang regional contact intents
     let lampangPhone8686 = 0;
     let lampangPhone8684 = 0;
     let lampangPhone8687 = 0;
     let lampangMapClicks = 0;
 
     filteredEvents.forEach((e) => {
-      if (e.eventName === 'lampang_center_contact_clicked') {
-        const key = e.payload?.phone_number_key;
+      if (e.eventType === 'phone_clicked') {
+        const key = e.contactKey;
         if (key === '8684') lampangPhone8684++;
         else if (key === '8687') lampangPhone8687++;
         else lampangPhone8686++;
-      } else if (e.eventName === 'lampang_center_map_clicked') {
+      } else if (e.eventType === 'map_clicked') {
         lampangMapClicks++;
       }
     });
 
     const lampangContactClicks = lampangPhone8686 + lampangPhone8684 + lampangPhone8687;
 
-    const completionRate = started > 0 ? (completed / started) * 100 : 100;
+    // Funnel numbers
+    const started = Math.max(completed, filteredSessions.length > 0 ? completed : (dateFilter === 'all' ? rawMetrics['quiz_started'] || 0 : 0));
+    const views = Math.max(started, dateFilter === 'all' ? rawMetrics['quiz_viewed'] || started : started);
+
+    const completionRate = started > 0 ? (completed / started) * 100 : (completed > 0 ? 100 : 0);
     const detailCtr = completed > 0 ? (detailClicks / completed) * 100 : 0;
     const contactIntentRate = completed > 0 ? ((lampangContactClicks + lampangMapClicks) / completed) * 100 : 0;
 
-    // Persona Counts
+    // Persona Breakdown
     const personaCounts = { career: 0, degree: 0, upskill: 0 };
     filteredSessions.forEach((s) => {
       if (s.primaryPersona === 'career') personaCounts.career++;
@@ -233,7 +283,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
       else if (s.primaryPersona === 'upskill') personaCounts.upskill++;
     });
 
-    // Interest Counts
+    // Interest Areas Breakdown
     const interestCounts: Record<string, number> = {
       people: 0,
       business: 0,
@@ -273,17 +323,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
       });
     });
 
-    // Count clicks per school/program
+    // Match detail clicks
     filteredEvents.forEach((e) => {
-      if (e.eventName === 'result_detail_clicked') {
-        const progName = e.payload?.program_name;
-        const school = e.payload?.school_code || e.payload?.school_name;
-        if (school && schoolMap[school]) {
-          schoolMap[school].clickCount++;
+      if (e.eventType === 'detail_clicked') {
+        if (e.schoolCode && schoolMap[e.schoolCode]) {
+          schoolMap[e.schoolCode].clickCount++;
         }
-        if (progName) {
+        if (e.programId) {
           Object.values(programMap).forEach((p) => {
-            if (p.programName === progName) {
+            if (p.programName.includes(e.programId || '')) {
               p.detailClickCount++;
             }
           });
@@ -298,12 +346,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
       clickCount: data.clickCount,
     })).sort((a, b) => b.count - a.count);
 
-    // Daily Trends
+    // Daily Trends (Asia/Bangkok formatted dates)
     const dayMap: Record<string, { views: number; started: number; completed: number; detailClicks: number; contactClicks: number; mapClicks: number }> = {};
 
     filteredSessions.forEach((s) => {
       if (s.completedAt) {
-        const d = new Date(s.completedAt).toLocaleDateString('th-TH');
+        const d = formatBangkokDateTime(s.completedAt).split(' ')[0] + ' ' + formatBangkokDateTime(s.completedAt).split(' ')[1] + ' ' + formatBangkokDateTime(s.completedAt).split(' ')[2];
         if (!dayMap[d]) dayMap[d] = { views: 0, started: 0, completed: 0, detailClicks: 0, contactClicks: 0, mapClicks: 0 };
         dayMap[d].completed++;
         dayMap[d].started = Math.max(dayMap[d].started, dayMap[d].completed);
@@ -312,14 +360,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
     });
 
     filteredEvents.forEach((e) => {
-      if (e.payload?.timestamp) {
-        const d = new Date(e.payload.timestamp).toLocaleDateString('th-TH');
+      if (e.occurredAt) {
+        const d = formatBangkokDateTime(e.occurredAt).split(' ')[0] + ' ' + formatBangkokDateTime(e.occurredAt).split(' ')[1] + ' ' + formatBangkokDateTime(e.occurredAt).split(' ')[2];
         if (!dayMap[d]) dayMap[d] = { views: 0, started: 0, completed: 0, detailClicks: 0, contactClicks: 0, mapClicks: 0 };
-        if (e.eventName === 'quiz_viewed') dayMap[d].views++;
-        else if (e.eventName === 'quiz_started') dayMap[d].started++;
-        else if (e.eventName === 'result_detail_clicked') dayMap[d].detailClicks++;
-        else if (e.eventName === 'lampang_center_contact_clicked') dayMap[d].contactClicks++;
-        else if (e.eventName === 'lampang_center_map_clicked') dayMap[d].mapClicks++;
+        if (e.eventType === 'detail_clicked') dayMap[d].detailClicks++;
+        else if (e.eventType === 'phone_clicked') dayMap[d].contactClicks++;
+        else if (e.eventType === 'map_clicked') dayMap[d].mapClicks++;
       }
     });
 
@@ -335,38 +381,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
     })).sort((a, b) => a.date.localeCompare(b.date));
 
     // Funnel stages
-    const qAnswerCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-    filteredEvents.forEach((e) => {
-      if (e.eventName === 'quiz_question_answered') {
-        const qNum = e.payload?.question_number;
-        if (qNum && qAnswerCounts[qNum] !== undefined) {
-          qAnswerCounts[qNum]++;
-        }
-      }
-    });
-
-    // Ensure monotonically non-increasing funnel consistency
-    const q1 = Math.max(completed, qAnswerCounts[1] || started);
-    const q2 = Math.max(completed, qAnswerCounts[2] || q1);
-    const q3 = Math.max(completed, qAnswerCounts[3] || q2);
-    const q4 = Math.max(completed, qAnswerCounts[4] || q3);
-    const q5 = Math.max(completed, qAnswerCounts[5] || q4);
-    const q6 = Math.max(completed, qAnswerCounts[6] || completed);
-
-    const baseStarted = Math.max(1, started);
+    const baseStarted = Math.max(1, started, completed);
 
     const funnelStages = [
       { stage: 'quiz_viewed', stageLabel: '1. ผู้เข้าชมหน้าแรก (Views)', count: views, pctOfStarted: (views / baseStarted) * 100 },
       { stage: 'quiz_started', stageLabel: '2. เริ่มทำแบบทดสอบ (Started)', count: started, pctOfStarted: 100.0 },
-      { stage: 'question_1_answered', stageLabel: '3. ตอบคำถามข้อ 1 (ช่วงชีวิต)', count: q1, pctOfStarted: (q1 / baseStarted) * 100 },
-      { stage: 'question_2_answered', stageLabel: '4. ตอบคำถามข้อ 2 (เป้าหมาย)', count: q2, pctOfStarted: (q2 / baseStarted) * 100 },
-      { stage: 'question_3_answered', stageLabel: '5. ตอบคำถามข้อ 3 (ผลลัพธ์ที่อยากได้)', count: q3, pctOfStarted: (q3 / baseStarted) * 100 },
-      { stage: 'question_4_answered', stageLabel: '6. ตอบคำถามข้อ 4 (กลุ่มความสนใจ)', count: q4, pctOfStarted: (q4 / baseStarted) * 100 },
-      { stage: 'question_5_answered', stageLabel: '7. ตอบคำถามข้อ 5 (การนำไปใช้)', count: q5, pctOfStarted: (q5 / baseStarted) * 100 },
-      { stage: 'question_6_answered', stageLabel: '8. ตอบคำถามข้อ 6 (รูปแบบที่สนใจ)', count: q6, pctOfStarted: (q6 / baseStarted) * 100 },
-      { stage: 'quiz_completed', stageLabel: '9. ได้รับผลลัพธ์เส้นทาง (Completed)', count: completed, pctOfStarted: (completed / baseStarted) * 100 },
-      { stage: 'result_detail_clicked', stageLabel: '10. คลิกดูรายละเอียดหลักสูตรต่อ', count: detailClicks, pctOfStarted: (detailClicks / baseStarted) * 100 },
-      { stage: 'contact_clicked', stageLabel: '11. แสดงความสนใจติดต่อ ศวช. ลำปาง', count: lampangContactClicks + lampangMapClicks, pctOfStarted: ((lampangContactClicks + lampangMapClicks) / baseStarted) * 100 },
+      { stage: 'quiz_completed', stageLabel: '3. ได้รับผลลัพธ์เส้นทาง (Completed)', count: completed, pctOfStarted: (completed / baseStarted) * 100 },
+      { stage: 'result_detail_clicked', stageLabel: '4. คลิกดูรายละเอียดหลักสูตรต่อ', count: detailClicks, pctOfStarted: (detailClicks / baseStarted) * 100 },
+      { stage: 'contact_clicked', stageLabel: '5. แสดงความสนใจติดต่อ ศวช. ลำปาง', count: lampangContactClicks + lampangMapClicks, pctOfStarted: ((lampangContactClicks + lampangMapClicks) / baseStarted) * 100 },
     ];
 
     // Question answers breakdown
@@ -423,10 +445,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
 
   // Report metadata
   const reportMeta: ReportMetadata = useMemo(() => {
-    let dateRangeText = 'ทั้งหมด (All Time)';
-    if (dateFilter === 'today') dateRangeText = 'วันนี้ (Today)';
-    else if (dateFilter === '7days') dateRangeText = '7 วันล่าสุด (Last 7 Days)';
+    let dateRangeText = 'วันนี้ (Today - Asia/Bangkok)';
+    if (dateFilter === '7days') dateRangeText = '7 วันล่าสุด (Last 7 Days)';
     else if (dateFilter === '30days') dateRangeText = '30 วันล่าสุด (Last 30 Days)';
+    else if (dateFilter === 'all') dateRangeText = 'ทั้งหมด (All Time)';
     else if (dateFilter === 'custom') {
       dateRangeText = `${customStartDate || 'เริ่มต้น'} ถึง ${customEndDate || 'ปัจจุบัน'}`;
     }
@@ -435,576 +457,644 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
       title: 'รายงานสรุปสถิติการใช้งาน Web app ค้นหาเส้นทางเรียน มสธ. ที่ใช่สำหรับคุณ',
       agency: 'ศูนย์วิทยบริการและชุมชนสัมพันธ์ มสธ. ลำปาง',
       dateRangeText,
-      generatedAtText: new Date().toLocaleString('th-TH', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      generatedAtText: formatBangkokDateTime(new Date()),
       appVersion: APP_VERSION,
       quizVersion: '2569-v1',
-      dataSource: 'Firebase Analytics และ Firestore',
+      dataSource: `Firestore Real-time DB (Project: ${FIREBASE_PROJECT_ID})`,
       privacyDisclaimer:
-        'รายงานนี้เป็นข้อมูลสรุปแบบไม่ระบุตัวตน เพื่อวิเคราะห์ภาพรวมความสนใจในการเรียนรู้ ไม่ใช่จำนวนผู้สมัครเรียน',
+        'รายงานนี้เป็นข้อมูลสรุปเชิงสถิติแบบไม่ระบุตัวตน (Anonymous Analytics) ไม่มีการจัดเก็บข้อมูลส่วนบุคคล (No PII)',
     };
   }, [dateFilter, customStartDate, customEndDate]);
 
-  // Handle Export Excel (.xlsx)
+  // Excel Export Handler
   const handleExportExcel = () => {
-    setExportingExcel(true);
     try {
+      setExportingExcel(true);
       const wb = generateExcelWorkbook(reportMeta, aggregatedStats, filteredSessions.length);
       const dateStr = new Date().toISOString().slice(0, 10);
-      const fileName = `STOU_Lampang_Quiz_Statistics_${dateStr}.xlsx`;
-      XLSX.writeFile(wb, fileName);
-    } catch (e) {
-      console.error('Export Excel failed:', e);
+      XLSX.writeFile(wb, `STOU_Quiz_Report_${dateStr}.xlsx`);
+    } catch (err) {
+      console.error('Excel Export Error:', err);
     } finally {
       setExportingExcel(false);
     }
   };
 
-  // Handle Print (Browser & OS native print dialog)
-  const handlePrint = () => {
-    setIsPrinting(true);
-    setTimeout(() => {
-      window.focus();
-      try {
-        window.print();
-      } catch (err) {
-        console.warn('Window print error:', err);
-      } finally {
-        setIsPrinting(false);
-      }
-    }, 150);
-  };
-
-  // Handle Export PDF (Executive clean A4 layout saved directly to computer or mobile)
+  // PDF Export & Print Handlers
   const handleExportPDF = async () => {
-    const element = printableReportRef.current;
-    if (!element) {
-      handlePrint();
-      return;
-    }
-
-    setExportingPDF(true);
-
+    if (!printableReportRef.current) return;
     try {
-      window.scrollTo(0, 0);
-
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
+      setExportingPDF(true);
+      const dataUrl = await toJpeg(printableReportRef.current, {
+        quality: 0.95,
         backgroundColor: '#FFFFFF',
-        windowWidth: element.scrollWidth || 1024,
+        pixelRatio: 2,
       });
 
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const pdf = new jsPDF({
         orientation: 'p',
         unit: 'mm',
         format: 'a4',
       });
 
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const margin = 10;
-      const imgWidth = pageWidth - margin * 2;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgProps = pdf.getImageProperties(dataUrl);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
 
-      let heightLeft = imgHeight;
-      let position = margin;
+      pdf.addImage(dataUrl, 'JPEG', 0, 0, pdfWidth, pdfHeight);
 
-      // Page 1
-      pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
-      heightLeft -= (pageHeight - margin * 2);
-
-      // Subsequent pages if long
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight + margin;
-        pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', margin, position, imgWidth, imgHeight);
-        heightLeft -= (pageHeight - margin * 2);
-      }
-
+      const blob = pdf.output('blob');
+      const blobUrl = URL.createObjectURL(blob);
       const dateStr = new Date().toISOString().slice(0, 10);
-      const fileName = `STOU_Lampang_Quiz_Statistics_${dateStr}.pdf`;
+      const fileName = `STOU_Executive_Report_${dateStr}.pdf`;
 
-      // 1. Generate Blob & Object URL for direct file downloading across PC and Mobile
-      const pdfBlob = pdf.output('blob');
-      const blobUrl = URL.createObjectURL(pdfBlob);
+      // Trigger standard download
+      pdf.save(fileName);
 
-      // 2. Trigger native download link
-      const downloadLink = document.createElement('a');
-      downloadLink.href = blobUrl;
-      downloadLink.download = fileName;
-      downloadLink.target = '_blank';
-      downloadLink.rel = 'noopener noreferrer';
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      setTimeout(() => {
-        try {
-          document.body.removeChild(downloadLink);
-        } catch (e) {
-          // ignore
-        }
-      }, 2000);
-
-      // 3. Open Success Modal with options: Open PDF, Save Again, Print, Share
+      // Open Success & Print Modal
       setPdfSuccessModal({
         fileName,
         blobUrl,
-        blob: pdfBlob,
+        blob,
       });
-    } catch (error) {
-      console.error('Error generating PDF download:', error);
-      handlePrint();
+    } catch (err) {
+      console.error('Error generating PDF download:', err);
     } finally {
       setExportingPDF(false);
     }
   };
 
-  // Handle Share PDF (Mobile Web Share API)
-  const handleSharePDF = async () => {
-    if (!pdfSuccessModal) return;
-    try {
-      const file = new File([pdfSuccessModal.blob], pdfSuccessModal.fileName, { type: 'application/pdf' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'รายงานสรุปผู้บริหาร สถิติ มสธ. ลำปาง',
-          text: 'รายงานสถิติแบบทดสอบค้นหาตนเอง ศูนย์วิทยบริการและชุมชนสัมพันธ์ มสธ. ลำปาง',
-        });
-      } else {
-        window.open(pdfSuccessModal.blobUrl, '_blank');
-      }
-    } catch (e) {
-      console.warn('Share error or cancelled:', e);
+  const handlePrintDocument = () => {
+    if (!pdfSuccessModal?.blobUrl) return;
+    setIsPrinting(true);
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.src = pdfSuccessModal.blobUrl;
+    document.body.appendChild(iframe);
+
+    iframe.onload = () => {
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch {
+          window.open(pdfSuccessModal.blobUrl, '_blank');
+        }
+        setIsPrinting(false);
+      }, 500);
+    };
+  };
+
+  // Reset Analytics Cycle Handler
+  const handleConfirmReset = () => {
+    const success = resetAdminAnalyticsAndSessions();
+    if (success) {
+      setResetSuccessNotice(true);
+      setShowResetModal(false);
+      setTimeout(() => setResetSuccessNotice(false), 4000);
     }
   };
 
-  // Reset Analytics and Sessions
-  const handleConfirmReset = () => {
-    resetAdminAnalyticsAndSessions();
-    setSessions([]);
-    setRawEvents([]);
-    setRawMetrics({
-      quiz_viewed: 0,
-      quiz_started: 0,
-      quiz_completed: 0,
-      quiz_restarted: 0,
-      result_detail_clicked: 0,
-      result_program_viewed: 0,
-    });
-    setShowResetModal(false);
-    setResetSuccessNotice(true);
-    setTimeout(() => {
-      setResetSuccessNotice(false);
-    }, 5000);
-  };
-
-  // Authentication Lock Screen
+  // 1. Password & Google Login Screen
   if (!isAuthenticated) {
     return (
-      <div className="w-full max-w-md mx-auto px-4 py-12 space-y-6">
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-md space-y-5 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-[#004D28] text-[#E5C158] mx-auto flex items-center justify-center shadow-xs">
-            <Lock className="w-6 h-6" />
-          </div>
-
-          <div className="space-y-1">
+      <div id="admin-login-screen" className="w-full max-w-md mx-auto px-4 py-16 sm:py-24 space-y-6">
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-md space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-[#004D28] text-[#E5C158] mx-auto flex items-center justify-center shadow-sm border border-[#D4AF37]/50">
+              <Shield className="w-7 h-7" />
+            </div>
             <h1 className="text-xl font-extrabold text-[#00381D]">
-              ระบบรายงานสถิติสำหรับเจ้าหน้าที่ มสธ.
+              Admin Dashboard มสธ.
             </h1>
             <p className="text-xs text-slate-500">
               ศูนย์วิทยบริการและชุมชนสัมพันธ์ มสธ. ลำปาง
             </p>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-4 text-left">
-            <div>
-              <label className="text-xs font-bold text-slate-700 block mb-1.5">
-                รหัสผ่านสำหรับเจ้าหน้าที่ผู้ดูแล:
+          {authError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handlePasswordLogin} className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">
+                รหัสผ่านผู้ดูแลระบบ (Admin Password)
               </label>
-              <input
-                type="password"
-                value={passwordInput}
-                onChange={(e) => setPasswordInput(e.target.value)}
-                placeholder="กรอกรหัสผ่านเพื่อเข้าใช้งาน"
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#006837] focus:border-transparent"
-              />
+              <div className="relative">
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="กรอกรหัสผ่าน (ค่าเริ่มต้น: stou2569)"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:outline-none focus:border-[#006837] focus:ring-1 focus:ring-[#006837] text-sm text-slate-900"
+                />
+                <Lock className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5" />
+              </div>
             </div>
 
-            {authError && (
-              <p className="text-xs text-rose-600 font-medium">
-                {authError}
-              </p>
-            )}
-
-            <div className="flex gap-2.5 pt-1">
-              <button
-                type="button"
-                onClick={onBackToApp}
-                className="flex-1 py-3 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
-              >
-                กลับหน้าหลัก
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-3 px-4 rounded-xl bg-[#004D28] hover:bg-[#00381D] text-white text-xs font-bold shadow-sm cursor-pointer"
-              >
-                เข้าสู่ระบบ
-              </button>
-            </div>
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl bg-[#004D28] hover:bg-[#00381D] text-white font-bold text-sm shadow-sm transition-all cursor-pointer"
+            >
+              เข้าสู่ระบบด้วยรหัสผ่าน
+            </button>
           </form>
+
+          <div className="relative flex items-center justify-center py-2">
+            <div className="border-t border-slate-200 w-full" />
+            <span className="bg-white px-3 text-xs text-slate-400 font-bold uppercase tracking-wider absolute">
+              หรือ
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            className="w-full py-3 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs shadow-2xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+          >
+            <Shield className="w-4 h-4 text-[#006837]" />
+            <span>เข้าสู่ระบบด้วยบัญชี Google เจ้าหน้าที่</span>
+          </button>
+
+          <div className="pt-2 text-center">
+            <button
+              type="button"
+              onClick={onBackToApp}
+              className="text-xs font-bold text-slate-500 hover:text-slate-800 transition-colors inline-flex items-center gap-1 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>กลับสู่หน้าหลัก Web App</span>
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div id="admin-dashboard" className="w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
-      {/* Reset Confirmation Success Banner */}
-      <AnimatePresence>
-        {resetSuccessNotice && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 flex items-center justify-between shadow-sm no-print"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
-                <Check className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-sm font-bold">รีเซ็ตข้อมูลและเริ่มนับรอบใหม่เรียบร้อยแล้ว</p>
-                <p className="text-xs text-emerald-700">
-                  ระบบได้ล้างสถิติเก่าและเริ่มนับสถิติรอบใหม่จาก 0 เรียบร้อยแล้ว
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setResetSuccessNotice(false)}
-              className="text-emerald-700 hover:text-emerald-950 p-1 rounded-lg cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Dashboard Top Header & Export Controls */}
-      <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 no-print">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-[#004D28] text-[#E5C158] flex items-center justify-center flex-shrink-0">
-            <BarChart3 className="w-6 h-6" />
+    <div id="admin-dashboard-view" className="w-full max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-6">
+      {/* 1. Header Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-sm">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="px-2.5 py-0.5 rounded-md bg-[#004D28] text-[#E5C158] font-bold text-[11px] border border-[#D4AF37]/40">
+              Admin Real-Time
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-semibold text-[11px]">
+              v{APP_VERSION}
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-semibold text-[11px] flex items-center gap-1">
+              <Database className="w-3 h-3" />
+              <span>{FIREBASE_PROJECT_ID}</span>
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-extrabold text-[#00381D]">
-                ระบบสรุปข้อมูลสถิติ มสธ. (Admin Dashboard)
-              </h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#F0F7F2] text-[#006837] border border-[#006837]/20">
-                v{APP_VERSION}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500">
-              ศูนย์วิทยบริการและชุมชนสัมพันธ์ มสธ. ลำปาง • ส่งออกรายงาน Executive Summary (Excel & PDF)
-            </p>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-[#00381D]">
+            ระบบรายงานสถิติการใช้งาน Web App มสธ.
+          </h1>
+          <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+            <span>ศวช. มสธ. ลำปาง</span>
+            <span>•</span>
+            <span className="inline-flex items-center gap-1 font-medium text-[#004D28]">
+              {isSyncing ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-[#006837]" />
+                  <span>กำลังซิงก์ข้อมูล...</span>
+                </>
+              ) : (
+                <>
+                  <Wifi className="w-3 h-3 text-emerald-600" />
+                  <span>ข้อมูลล่าสุดเมื่อ {lastSyncTime || 'ซิงก์แล้ว'} (Asia/Bangkok)</span>
+                </>
+              )}
+            </span>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
-          {/* Refresh Data */}
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={loadDashboardData}
-            className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            title="รีเฟรชข้อมูลล่าสุด"
+            onClick={handleExportExcel}
+            disabled={exportingExcel}
+            className="px-3.5 py-2 rounded-xl bg-[#004D28] hover:bg-[#00381D] text-white font-bold text-xs shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">รีเฟรช</span>
+            {exportingExcel ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-3.5 h-3.5 text-[#E5C158]" />
+            )}
+            <span>ส่งออก Excel</span>
           </button>
 
-          {/* Print Report Direct Action */}
           <button
             type="button"
-            id="btn-print-report"
-            disabled={isPrinting}
-            onClick={handlePrint}
-            className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 disabled:bg-slate-800/60 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition-all"
-            title="สั่งพิมพ์รายงานออกทางเครื่องพิมพ์ หรือเลือกพิมพ์เป็น PDF ของบราวเซอร์"
-          >
-            <Printer className="w-4 h-4 text-emerald-300" />
-            <span>{isPrinting ? 'กำลังเตรียมพิมพ์...' : 'สั่งพิมพ์เอกสาร'}</span>
-          </button>
-
-          {/* Export Executive PDF Report (jsPDF) */}
-          <button
-            type="button"
-            id="btn-export-pdf"
-            disabled={exportingPDF}
             onClick={handleExportPDF}
-            className="px-3.5 py-2.5 rounded-xl bg-[#004D28] hover:bg-[#00381D] disabled:bg-[#004D28]/60 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition-all"
-            title="บันทึกรายงานสรุปผู้บริหารเป็นไฟล์ PDF ขนาด A4 ลงคอมพิวเตอร์หรือมือถือ"
+            disabled={exportingPDF}
+            className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#F0F7F2] text-[#004D28] border border-[#006837]/30 font-bold text-xs shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
           >
             {exportingPDF ? (
-              <>
-                <Loader2 className="w-4 h-4 text-[#E5C158] animate-spin" />
-                <span>กำลังสร้าง PDF...</span>
-              </>
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <>
-                <Download className="w-4 h-4 text-[#E5C158]" />
-                <span>บันทึกเป็น PDF (สรุปผู้บริหาร)</span>
-              </>
+              <FileText className="w-3.5 h-3.5" />
             )}
+            <span>สรุปผู้บริหาร (PDF)</span>
           </button>
 
-          {/* Export 8-Sheet Excel (.xlsx) */}
           <button
             type="button"
-            id="btn-export-excel"
-            disabled={exportingExcel}
-            onClick={handleExportExcel}
-            className="px-3.5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-700/60 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm cursor-pointer transition-all"
-            title="ส่งออกรายงาน 8 ชีตแบบครบถ้วนเป็นไฟล์ Excel (.xlsx)"
+            onClick={handleLogout}
+            className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-xs transition-colors cursor-pointer"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-            <span>{exportingExcel ? 'กำลังสร้าง Excel...' : 'ส่งออก Excel (8 ชีต)'}</span>
-          </button>
-
-          {/* Reset / Start New Count */}
-          <button
-            type="button"
-            id="btn-reset-analytics"
-            onClick={() => setShowResetModal(true)}
-            className="px-3 py-2.5 rounded-xl border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold inline-flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all"
-            title="รีเซ็ตสถิติและเริ่มนับใหม่"
-          >
-            <RotateCcw className="w-4 h-4 text-rose-600" />
-            <span>เริ่มนับใหม่</span>
-          </button>
-
-          {/* Back to App */}
-          <button
-            type="button"
-            onClick={onBackToApp}
-            className="px-3 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>กลับสู่แอป</span>
+            ออกจากระบบ
           </button>
         </div>
       </div>
 
-      {/* Date & Persona Filter Bar */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs no-print">
-        {/* Date Filter Selection */}
+      {/* Offline / Sync Error Banner */}
+      {syncErrorNotice && (
+        <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-800 text-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <WifiOff className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span className="font-semibold">{syncErrorNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSyncErrorNotice(null)}
+            className="text-amber-700 hover:text-amber-900 font-bold"
+          >
+            ปิด
+          </button>
+        </div>
+      )}
+
+      {/* Reset Success Notice */}
+      {resetSuccessNotice && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+          <span>รีเซ็ตสถิติรอบการจัดแสดงเรียบร้อยแล้ว เริ่มต้นนับรอบใหม่</span>
+        </div>
+      )}
+
+      {/* 2. Filter Controls: Date Range & Persona */}
+      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+            <Filter className="w-4 h-4 text-[#006837]" />
+            <span>ตัวกรองช่วงเวลา (เวลาประเทศไทย Asia/Bangkok):</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowResetModal(true)}
+            className="text-[11px] font-bold text-rose-600 hover:text-rose-800 hover:underline inline-flex items-center gap-1 cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>รีเซ็ตรอบจัดนิทรรศการ</span>
+          </button>
+        </div>
+
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-slate-700 flex items-center gap-1">
-            <Calendar className="w-3.5 h-3.5 text-[#006837]" />
-            <span>ช่วงเวลา:</span>
-          </span>
-          {(['all', 'today', '7days', '30days', 'custom'] as const).map((d) => (
+          {(['today', '7days', '30days', 'all', 'custom'] as const).map((filterKey) => (
             <button
-              key={d}
+              key={filterKey}
               type="button"
-              onClick={() => setDateFilter(d)}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                dateFilter === d
+              onClick={() => setDateFilter(filterKey)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                dateFilter === filterKey
                   ? 'bg-[#004D28] text-white shadow-2xs'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
-              {d === 'all' && 'ทั้งหมด'}
-              {d === 'today' && 'วันนี้'}
-              {d === '7days' && '7 วันล่าสุด'}
-              {d === '30days' && '30 วันล่าสุด'}
-              {d === 'custom' && 'กำหนดเอง'}
+              {filterKey === 'today' && 'วันนี้'}
+              {filterKey === '7days' && '7 วันล่าสุด'}
+              {filterKey === '30days' && '30 วันล่าสุด'}
+              {filterKey === 'all' && 'ทั้งหมด'}
+              {filterKey === 'custom' && 'กำหนดเอง'}
             </button>
           ))}
 
-          {dateFilter === 'custom' && (
-            <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
-              <input
-                type="date"
-                value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                className="px-2 py-1 rounded border border-slate-300 text-xs"
-              />
-              <span>ถึง</span>
-              <input
-                type="date"
-                value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                className="px-2 py-1 rounded border border-slate-300 text-xs"
-              />
-            </div>
-          )}
+          {/* Persona Filter */}
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-slate-500">กลุ่มผู้เรียน:</span>
+            <select
+              value={personaFilter}
+              onChange={(e) => setPersonaFilter(e.target.value)}
+              className="px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200 focus:outline-none"
+            >
+              <option value="all">ทั้งหมด</option>
+              <option value="career">ผู้ต้องการต่อยอดอาชีพ (ป.โท-เอก)</option>
+              <option value="degree">ผู้ต้องการปริญญาแรก (ป.ตรี)</option>
+              <option value="upskill">ผู้ต้องการ Upskill (สัมฤทธิบัตร)</option>
+            </select>
+          </div>
         </div>
 
-        {/* Persona Filter */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-slate-700 flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5 text-[#006837]" />
-            <span>กลุ่ม Persona:</span>
-          </span>
-          <select
-            value={personaFilter}
-            onChange={(e) => setPersonaFilter(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-[#006837]"
-          >
-            <option value="all">ทุกกลุ่มผลลัพธ์</option>
-            <option value="career">นักพัฒนาความก้าวหน้าในอาชีพ (Career)</option>
-            <option value="degree">นักสร้างโอกาสใหม่ (Degree)</option>
-            <option value="upskill">นัก Upskill / Reskill (Upskill)</option>
-          </select>
-        </div>
+        {dateFilter === 'custom' && (
+          <div className="flex items-center gap-2 pt-2 text-xs flex-wrap">
+            <span className="text-slate-600 font-medium">ตั้งแต่วันที่:</span>
+            <input
+              type="date"
+              value={customStartDate}
+              onChange={(e) => setCustomStartDate(e.target.value)}
+              className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs"
+            />
+            <span className="text-slate-600 font-medium">ถึง:</span>
+            <input
+              type="date"
+              value={customEndDate}
+              onChange={(e) => setCustomEndDate(e.target.value)}
+              className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs"
+            />
+          </div>
+        )}
       </div>
 
-      {/* Quick Action Toolbar directly above the printable document preview */}
-      <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md no-print">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <Printer className="w-4 h-4 text-[#E5C158]" />
-            <h2 className="text-sm font-extrabold text-white">
-              ตัวอย่างรายงานสรุปผู้บริหาร (Executive Report Preview)
-            </h2>
+      {/* 3. Top Key Performance Indicators (KPI Cards) */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+        {/* Completed Quiz Sessions */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500">ทำแบบทดสอบจบ</span>
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </div>
-          <p className="text-xs text-slate-300">
-            เอกสารถูกจัดรูปแบบพร้อมสั่งพิมพ์ A4 และสามารถกดบันทึกเป็นไฟล์ PDF / Excel ลงในคอมพิวเตอร์หรือมือถือได้ทันที
+          <p className="text-2xl sm:text-3xl font-extrabold text-[#00381D]">
+            {aggregatedStats.completed.toLocaleString()}
+          </p>
+          <p className="text-[11px] text-slate-500">
+            อัตราความสำเร็จ: {aggregatedStats.completionRate.toFixed(1)}%
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
-          {/* Quick Print */}
-          <button
-            type="button"
-            id="btn-quick-print"
-            disabled={isPrinting}
-            onClick={handlePrint}
-            className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/60 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all"
-            title="สั่งพิมพ์รายงานออกทางเครื่องพิมพ์"
-          >
-            <Printer className="w-4 h-4 text-white" />
-            <span>สั่งพิมพ์เอกสาร</span>
-          </button>
+        {/* Detail Clicks */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500">คลิกดูหลักสูตร</span>
+            <ExternalLink className="w-4 h-4 text-[#006837]" />
+          </div>
+          <p className="text-2xl sm:text-3xl font-extrabold text-[#004D28]">
+            {aggregatedStats.detailClicks.toLocaleString()}
+          </p>
+          <p className="text-[11px] text-slate-500">
+            CTR: {aggregatedStats.detailCtr.toFixed(1)}%
+          </p>
+        </div>
 
-          {/* Quick PDF */}
-          <button
-            type="button"
-            id="btn-quick-pdf"
-            disabled={exportingPDF}
-            onClick={handleExportPDF}
-            className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl bg-[#004D28] hover:bg-[#00381D] border border-emerald-400/40 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-all"
-            title="บันทึกรายงานสรุปผู้บริหารเป็นไฟล์ PDF ลงคอมพิวเตอร์หรือมือถือ"
-          >
-            {exportingPDF ? (
-              <>
-                <Loader2 className="w-4 h-4 text-[#E5C158] animate-spin" />
-                <span>กำลังบันทึก PDF...</span>
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4 text-[#E5C158]" />
-                <span>บันทึกเป็น PDF</span>
-              </>
-            )}
-          </button>
+        {/* Lampang Center Contacts */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500">สนใจติดต่อ ศวช.</span>
+            <Phone className="w-4 h-4 text-[#B38918]" />
+          </div>
+          <p className="text-2xl sm:text-3xl font-extrabold text-[#8B6B15]">
+            {(aggregatedStats.lampangContactClicks + aggregatedStats.lampangMapClicks).toLocaleString()}
+          </p>
+          <p className="text-[11px] text-slate-500">
+            โทร: {aggregatedStats.lampangContactClicks} | แผนที่: {aggregatedStats.lampangMapClicks}
+          </p>
+        </div>
+
+        {/* Top Persona Lead */}
+        <div className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-500">กลุ่มที่สนใจสูงสุด</span>
+            <Award className="w-4 h-4 text-emerald-600" />
+          </div>
+          <p className="text-sm sm:text-base font-extrabold text-[#00381D] truncate">
+            {aggregatedStats.personaCounts.career >= aggregatedStats.personaCounts.degree &&
+            aggregatedStats.personaCounts.career >= aggregatedStats.personaCounts.upskill
+              ? 'ต่อยอดอาชีพ (ป.โท-เอก)'
+              : aggregatedStats.personaCounts.degree >= aggregatedStats.personaCounts.upskill
+              ? 'ปริญญาแรก (ป.ตรี)'
+              : 'Upskill (สัมฤทธิบัตร)'}
+          </p>
+          <p className="text-[11px] text-slate-500">
+            {Math.max(
+              aggregatedStats.personaCounts.career,
+              aggregatedStats.personaCounts.degree,
+              aggregatedStats.personaCounts.upskill
+            )}{' '}
+            คน ({aggregatedStats.completed > 0 ? ((Math.max(aggregatedStats.personaCounts.career, aggregatedStats.personaCounts.degree, aggregatedStats.personaCounts.upskill) / aggregatedStats.completed) * 100).toFixed(0) : 0}%)
+          </p>
         </div>
       </div>
 
-      {/* Main Formatted Printable Report Document (Used for PDF Export and On-screen Preview) */}
-      <div ref={printableReportRef} className="printable-report-container">
-        <PrintableReportDocument meta={reportMeta} stats={aggregatedStats} />
+      {/* 4. Visual Funnel & Persona Distribution */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Funnel */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-3">
+          <h3 className="text-sm font-extrabold text-[#00381D] flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-[#006837]" />
+            <span>Conversion Funnel (เส้นทางการใช้งาน)</span>
+          </h3>
+          <div className="space-y-2 pt-1">
+            {aggregatedStats.funnelStages.map((stage, idx) => (
+              <div key={idx} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-700">{stage.stageLabel}</span>
+                  <span className="font-bold text-[#00381D]">
+                    {stage.count.toLocaleString()} ({stage.pctOfStarted.toFixed(1)}%)
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-[#004D28] rounded-full transition-all"
+                    style={{ width: `${Math.min(100, Math.max(0, stage.pctOfStarted))}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Persona Distribution */}
+        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-3">
+          <h3 className="text-sm font-extrabold text-[#00381D] flex items-center gap-2">
+            <Users className="w-4 h-4 text-[#006837]" />
+            <span>สัดส่วนกลุ่มเป้าหมาย (Primary Persona)</span>
+          </h3>
+
+          <div className="space-y-3 pt-1">
+            {/* Career */}
+            <div className="p-3 bg-[#F4F9F6] rounded-xl border border-[#006837]/20 space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#004D28]">ผู้ต้องการต่อยอดอาชีพ (ป.โท-เอก)</span>
+                <span className="font-extrabold text-[#00381D]">
+                  {aggregatedStats.personaCounts.career} คน (
+                  {aggregatedStats.completed > 0
+                    ? ((aggregatedStats.personaCounts.career / aggregatedStats.completed) * 100).toFixed(1)
+                    : 0}
+                  %)
+                </span>
+              </div>
+              <div className="w-full h-2 bg-white rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#004D28] rounded-full"
+                  style={{
+                    width: `${
+                      aggregatedStats.completed > 0
+                        ? (aggregatedStats.personaCounts.career / aggregatedStats.completed) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Degree */}
+            <div className="p-3 bg-[#F0F7F2] rounded-xl border border-emerald-200 space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-emerald-800">ผู้ต้องการปริญญาแรก (ป.ตรี ม.6/ปวช./ปวส.)</span>
+                <span className="font-extrabold text-emerald-900">
+                  {aggregatedStats.personaCounts.degree} คน (
+                  {aggregatedStats.completed > 0
+                    ? ((aggregatedStats.personaCounts.degree / aggregatedStats.completed) * 100).toFixed(1)
+                    : 0}
+                  %)
+                </span>
+              </div>
+              <div className="w-full h-2 bg-white rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-600 rounded-full"
+                  style={{
+                    width: `${
+                      aggregatedStats.completed > 0
+                        ? (aggregatedStats.personaCounts.degree / aggregatedStats.completed) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Upskill */}
+            <div className="p-3 bg-[#FDFBF2] rounded-xl border border-[#D4AF37]/30 space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-[#8B6B15]">ผู้ต้องการ Upskill (สัมฤทธิบัตร/สะสมหน่วยกิต)</span>
+                <span className="font-extrabold text-[#8B6B15]">
+                  {aggregatedStats.personaCounts.upskill} คน (
+                  {aggregatedStats.completed > 0
+                    ? ((aggregatedStats.personaCounts.upskill / aggregatedStats.completed) * 100).toFixed(1)
+                    : 0}
+                  %)
+                </span>
+              </div>
+              <div className="w-full h-2 bg-white rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[#D4AF37] rounded-full"
+                  style={{
+                    width: `${
+                      aggregatedStats.completed > 0
+                        ? (aggregatedStats.personaCounts.upskill / aggregatedStats.completed) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* PDF Download Success Modal (Supports PC, Android, iPhone/iPad) */}
-      <AnimatePresence>
-        {pdfSuccessModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs no-print">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5"
-            >
-              <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-[#004D28] flex items-center justify-center flex-shrink-0">
-                  <CheckCircle2 className="w-7 h-7" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-[#00381D]">
-                    บันทึกไฟล์ PDF เรียบร้อยแล้ว!
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    รายงานสรุปผู้บริหาร ศวช. มสธ. ลำปาง
-                  </p>
-                </div>
-              </div>
+      {/* 5. Top 5 Recommended Programs Table */}
+      <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+        <h3 className="text-sm font-extrabold text-[#00381D] flex items-center gap-2">
+          <Layers className="w-4 h-4 text-[#006837]" />
+          <span>อันดับหลักสูตรที่ระบบแนะนำสูงสุด (Top Recommended Programs)</span>
+        </h3>
 
-              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5 text-xs text-slate-700">
-                <div className="flex items-center gap-1.5 text-slate-800 font-bold">
-                  <FileText className="w-4 h-4 text-[#006837]" />
-                  <span className="truncate">{pdfSuccessModal.fileName}</span>
-                </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  ระบบได้ส่งคำสั่งบันทึกไฟล์ลงในอุปกรณ์ของคุณแล้ว (โฟลเดอร์ Downloads หรือคลังไฟล์ในมือถือ)
+        <div className="overflow-x-auto pt-1">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200 text-slate-500 font-bold bg-slate-50">
+                <th className="py-2.5 px-3">อันดับ</th>
+                <th className="py-2.5 px-3">สาขาวิชา</th>
+                <th className="py-2.5 px-3">ชื่อหลักสูตร</th>
+                <th className="py-2.5 px-3">วิชาเอก/แขนง</th>
+                <th className="py-2.5 px-3 text-right">จำนวนแนะนำ</th>
+                <th className="py-2.5 px-3 text-right">คลิกดูต่อ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-slate-700">
+              {aggregatedStats.topPrograms.slice(0, 8).map((p, idx) => (
+                <tr key={idx} className="hover:bg-slate-50">
+                  <td className="py-2.5 px-3 font-extrabold text-[#004D28]">#{idx + 1}</td>
+                  <td className="py-2.5 px-3 font-semibold">{p.schoolName}</td>
+                  <td className="py-2.5 px-3 font-bold text-[#00381D]">{p.programName}</td>
+                  <td className="py-2.5 px-3 text-slate-500">{p.majorName || '-'}</td>
+                  <td className="py-2.5 px-3 text-right font-bold text-emerald-800">
+                    {p.recommendationCount} ครั้ง
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-medium text-slate-600">
+                    {p.detailClickCount} ครั้ง
+                  </td>
+                </tr>
+              ))}
+              {aggregatedStats.topPrograms.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-slate-400">
+                    ยังไม่มีข้อมูลหลักสูตรในช่วงเวลานี้
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Hidden Container for Generating High-Quality Executive PDF (Uses pure standard Hex/RGB colors, completely oklch-free) */}
+      <div className="absolute left-[-9999px] top-[-9999px]">
+        <div ref={printableReportRef}>
+          <PrintableReportDocument
+            stats={aggregatedStats}
+            metadata={reportMeta}
+          />
+        </div>
+      </div>
+
+      {/* Reset Confirmation Modal */}
+      <AnimatePresence>
+        {showResetModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-extrabold text-slate-900">
+                  ยืนยันการรีเซ็ตรอบจัดนิทรรศการ?
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  ระบบจะล้างแคชสถิติในอุปกรณ์นี้ เพื่อเริ่มต้นนับจำนวนผู้เข้าชมในรอบใหม่ (ไม่มีผลต่อข้อมูลย้อนหลังใน Firestore)
                 </p>
               </div>
-
-              {/* Action Buttons inside PDF dialog */}
-              <div className="space-y-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {/* Direct Open PDF in New Tab */}
-                  <a
-                    href={pdfSuccessModal.blobUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="py-3 px-4 rounded-xl bg-[#004D28] hover:bg-[#00381D] text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm transition-all text-center"
-                  >
-                    <ExternalLink className="w-4 h-4 text-[#E5C158]" />
-                    <span>เปิดดู / บันทึกซ้ำ</span>
-                  </a>
-
-                  {/* Print Document */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handlePrint();
-                    }}
-                    className="py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all"
-                  >
-                    <Printer className="w-4 h-4 text-emerald-300" />
-                    <span>สั่งพิมพ์เอกสาร</span>
-                  </button>
-                </div>
-
-                {/* Mobile Web Share if supported */}
-                {typeof navigator !== 'undefined' && 'share' in navigator && (
-                  <button
-                    type="button"
-                    onClick={handleSharePDF}
-                    className="w-full py-2.5 px-4 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-[#004D28] text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-all"
-                  >
-                    <Share2 className="w-4 h-4" />
-                    <span>แชร์ไฟล์หรือบันทึกลงแอป Files (มือถือ)</span>
-                  </button>
-                )}
-
-                {/* Close Dialog */}
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setPdfSuccessModal(null)}
-                  className="w-full py-2.5 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer transition-all"
+                  onClick={() => setShowResetModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
                 >
-                  ปิดหน้าต่างนี้
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmReset}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
+                >
+                  ยืนยันรีเซ็ต
                 </button>
               </div>
             </motion.div>
@@ -1012,48 +1102,61 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
         )}
       </AnimatePresence>
 
-      {/* Confirmation Modal for Resetting Count */}
+      {/* PDF Ready & Print Dialog Modal */}
       <AnimatePresence>
-        {showResetModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs no-print">
+        {pdfSuccessModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 space-y-4 text-center"
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4"
             >
-              <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center shadow-xs">
-                <AlertTriangle className="w-7 h-7" />
+              <div className="flex items-start justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-[#004D28] text-[#E5C158] flex items-center justify-center shadow-xs">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPdfSuccessModal(null)}
+                  className="p-1 rounded-full text-slate-400 hover:text-slate-700"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              <div className="space-y-1.5">
-                <h3 className="text-lg font-bold text-slate-900">
-                  ยืนยันการรีเซ็ตข้อมูลและเริ่มนับใหม่?
+              <div className="space-y-1 text-left">
+                <h3 className="text-base font-extrabold text-[#00381D]">
+                  สร้างรายงานสรุปผู้บริหารสำเร็จ!
                 </h3>
-                <p className="text-xs text-slate-600 leading-relaxed text-left bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  ระบบจะล้างยอดสถิติและการบันทึกทั้งหมดของรอบปัจจุบันให้กลายเป็น 0
-                  <br />
-                  <strong className="text-slate-800">คำแนะนำ:</strong> หากต้องการเก็บสถิติรอบนี้ไว้ โปรดกดปุ่ม <strong>"ส่งออก Excel (8 ชีต)"</strong> หรือ <strong>"บันทึกเป็น PDF"</strong> ก่อนทำการรีเซ็ต
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  ไฟล์ <strong className="text-slate-900">{pdfSuccessModal.fileName}</strong> ถูกบันทึกลงอุปกรณ์แล้ว ท่านสามารถกดสั่งพิมพ์ออกเครื่องพิมพ์ได้ทันที
                 </p>
               </div>
 
-              <div className="flex gap-2.5 pt-2">
+              <div className="space-y-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowResetModal(false)}
-                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer transition-all"
+                  onClick={handlePrintDocument}
+                  disabled={isPrinting}
+                  className="w-full py-3 rounded-2xl bg-[#004D28] hover:bg-[#00381D] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all cursor-pointer"
                 >
-                  ยกเลิก
+                  {isPrinting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-[#E5C158]" />
+                  ) : (
+                    <Printer className="w-4 h-4 text-[#E5C158]" />
+                  )}
+                  <span>สั่งพิมพ์เอกสาร (Print Out)</span>
                 </button>
-                <button
-                  type="button"
-                  id="btn-confirm-reset"
-                  onClick={handleConfirmReset}
-                  className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md cursor-pointer transition-all flex items-center justify-center gap-1.5"
+
+                <a
+                  href={pdfSuccessModal.blobUrl}
+                  download={pdfSuccessModal.fileName}
+                  className="w-full py-2.5 rounded-2xl bg-[#F0F7F2] hover:bg-[#E2EFE6] text-[#004D28] font-bold text-xs flex items-center justify-center gap-2 border border-[#006837]/30 transition-all text-center"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>ยืนยันเริ่มนับใหม่</span>
-                </button>
+                  <FileDown className="w-4 h-4" />
+                  <span>บันทึกซ้ำลงคอมพิวเตอร์/มือถือ</span>
+                </a>
               </div>
             </motion.div>
           </div>

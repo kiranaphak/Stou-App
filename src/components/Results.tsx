@@ -8,26 +8,23 @@ import {
   CheckCircle2,
   ExternalLink,
   RotateCcw,
-  Headphones,
   BookOpen,
   Building,
   Briefcase,
   ChevronRight,
   Share2,
   Check,
-  Award,
   Layers,
   ArrowUpRight,
   HelpCircle,
   PhoneCall,
   Loader2,
-  FileText,
   X,
+  FileQuestion,
 } from 'lucide-react';
 import { ScoringResult, RecommendedProgramResult } from '../types';
 import {
   BACHELOR_URL,
-  GRADUATE_URL,
   GRADUATE_CURRICULUM_URL,
   SUMRIT_URL,
   STOU_ADMISSION_URL,
@@ -39,50 +36,61 @@ import { trackEvent } from '../lib/firebase';
 import { LampangContactCard } from './LampangContactCard';
 
 interface ResultsProps {
-  result: ScoringResult;
+  result: ScoringResult | null;
   onRestart: () => void;
-  onOpenAdvisory: () => void;
+  onOpenAdvisory?: () => void;
+  onStartQuiz?: () => void;
 }
 
 export const Results: React.FC<ResultsProps> = ({
   result,
   onRestart,
-  onOpenAdvisory,
+  onStartQuiz,
 }) => {
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [selectedCareerProg, setSelectedCareerProg] = useState<RecommendedProgramResult | null>(null);
-  const { primaryPathway, allPathwayScores, topRecommendedPrograms, interestLabel } = result;
 
   // Processing / matching animation delay (0.75s) as required by Section H
   useEffect(() => {
+    if (!result) {
+      setLoading(false);
+      return;
+    }
+
     const timer = setTimeout(() => {
       setLoading(false);
 
       // Track program view events once results are displayed
-      topRecommendedPrograms.forEach((prog) => {
-        trackEvent('result_program_viewed', {
-          rank: prog.rank,
-          school_code: prog.schoolCode,
-          program_id: prog.programId,
-          persona: primaryPathway.id,
-        });
+      result.topRecommendedPrograms?.forEach((prog) => {
+        try {
+          trackEvent('result_program_viewed', {
+            rank: prog.rank,
+            school_code: prog.schoolCode,
+            program_id: prog.programId,
+            persona: result.primaryPathway?.id,
+          });
+        } catch {
+          // Ignore analytics failure
+        }
       });
     }, 750);
 
     return () => clearTimeout(timer);
-  }, [topRecommendedPrograms, primaryPathway.id]);
+  }, [result]);
 
   const handleShare = async () => {
+    if (!result) return;
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: `ผลการค้นหาหลักสูตร มสธ. ของฉัน: ${primaryPathway.name}`,
-          text: `ฉันค้นพบเส้นทางการเรียนรู้ มสธ. ที่เหมาะกับฉัน: ${primaryPathway.name} พร้อม 3 หลักสูตรแนะนำ!`,
+      const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+      if (nav && 'share' in nav) {
+        await nav.share({
+          title: `ผลการค้นหาหลักสูตร มสธ. ของฉัน: ${result.primaryPathway?.name}`,
+          text: `ฉันค้นพบเส้นทางการเรียนรู้ มสธ. ที่เหมาะกับฉัน: ${result.primaryPathway?.name} พร้อม 3 หลักสูตรแนะนำ!`,
           url: window.location.href,
         });
-      } else {
-        await navigator.clipboard.writeText(window.location.href);
+      } else if (nav && nav.clipboard) {
+        await nav.clipboard.writeText(window.location.href);
         setCopiedLink(true);
         setTimeout(() => setCopiedLink(false), 2500);
       }
@@ -91,16 +99,9 @@ export const Results: React.FC<ResultsProps> = ({
     }
   };
 
-  const handleDetailClick = (prog: RecommendedProgramResult) => {
-    trackEvent('result_detail_clicked', {
-      rank: prog.rank,
-      school_code: prog.schoolCode,
-      program_id: prog.programId,
-      persona: primaryPathway.id,
-    });
-
+  const getProgramDetailUrl = (prog: RecommendedProgramResult, personaId?: string): string => {
     const isGrad =
-      primaryPathway.id === 'career' ||
+      personaId === 'career' ||
       prog.degreeName?.includes('โท') ||
       prog.degreeName?.includes('เอก') ||
       prog.programName?.includes('มหาบัณฑิต') ||
@@ -111,11 +112,7 @@ export const Results: React.FC<ResultsProps> = ({
       prog.detailUrl?.includes('curriculums2') ||
       prog.detailUrl?.includes('ogs.stou.ac.th');
 
-    const targetUrl = isGrad
-      ? GRADUATE_CURRICULUM_URL
-      : (prog.detailUrl || BACHELOR_URL);
-
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    return isGrad ? GRADUATE_CURRICULUM_URL : (prog.detailUrl || BACHELOR_URL);
   };
 
   const scrollToSection = (elementId: string) => {
@@ -143,9 +140,48 @@ export const Results: React.FC<ResultsProps> = ({
     );
   }
 
+  // 3. Empty State if no quiz result found in session
+  if (!result || !result.primaryPathway) {
+    return (
+      <div id="results-empty-state" className="w-full max-w-lg mx-auto px-4 py-16 text-center space-y-6">
+        <div className="w-20 h-20 rounded-3xl bg-[#F0F7F2] text-[#004D28] mx-auto flex items-center justify-center border-2 border-[#006837]/20 shadow-sm">
+          <FileQuestion className="w-10 h-10 text-[#006837]" />
+        </div>
+
+        <div className="space-y-2">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-[#00381D]">
+            ยังไม่พบผลการค้นหาเส้นทางเรียน
+          </h1>
+          <p className="text-sm text-slate-600 leading-relaxed max-w-md mx-auto">
+            เริ่มตอบคำถามสั้น ๆ เพื่อให้ระบบช่วยจับคู่หลักสูตรที่อาจเหมาะกับคุณ
+          </p>
+        </div>
+
+        <div className="pt-2">
+          <button
+            id="btn-start-quiz-empty"
+            type="button"
+            onClick={onStartQuiz || onRestart}
+            className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-[#004D28] hover:bg-[#00381D] text-white font-extrabold text-base shadow-md border-2 border-[#D4AF37]/50 inline-flex items-center justify-center gap-2 cursor-pointer transition-all"
+          >
+            <span>เริ่มทำแบบทดสอบ</span>
+            <ArrowUpRight className="w-5 h-5 text-[#E5C158]" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const { primaryPathway, topRecommendedPrograms, interestLabel } = result;
   const isUpskill = primaryPathway.id === 'upskill';
   const isDegree = primaryPathway.id === 'degree';
   const isCareer = primaryPathway.id === 'career';
+
+  const primaryCtaUrl = isCareer
+    ? GRADUATE_CURRICULUM_URL
+    : isUpskill
+    ? SUMRIT_URL
+    : BACHELOR_URL;
 
   return (
     <div id="results-page" className="w-full max-w-2xl mx-auto px-4 py-5 sm:py-8 space-y-6">
@@ -268,24 +304,29 @@ export const Results: React.FC<ResultsProps> = ({
             </div>
           </div>
 
-          {/* Primary Persona Action Button */}
+          {/* Primary Persona Action Button (Anchor Tag Opening in New Tab) */}
           <div className="pt-2">
-            <button
-              type="button"
+            <a
+              id="btn-primary-pathway-cta"
+              href={primaryCtaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               onClick={() => {
-                if (isCareer) {
-                  window.open(GRADUATE_CURRICULUM_URL, '_blank', 'noopener,noreferrer');
-                } else if (isUpskill) {
-                  window.open(SUMRIT_URL, '_blank', 'noopener,noreferrer');
-                } else {
-                  window.open(BACHELOR_URL, '_blank', 'noopener,noreferrer');
+                try {
+                  trackEvent('result_detail_clicked', {
+                    persona: primaryPathway.id,
+                    rank: 1,
+                    action: 'primary_cta',
+                  });
+                } catch {
+                  // Ignore analytics failure
                 }
               }}
-              className="w-full py-4 px-6 rounded-2xl bg-[#004D28] hover:bg-[#00381D] text-white font-extrabold text-[16px] sm:text-[17px] border-2 border-[#D4AF37]/50 shadow-md flex items-center justify-center gap-2.5 transition-all cursor-pointer"
+              className="w-full py-4 px-6 rounded-2xl bg-[#004D28] hover:bg-[#00381D] text-white font-extrabold text-[16px] sm:text-[17px] border-2 border-[#D4AF37]/50 shadow-md flex items-center justify-center gap-2.5 transition-all cursor-pointer text-center"
             >
               <span>{primaryPathway.ctaText}</span>
               <ArrowUpRight className="w-5 h-5 text-[#E5C158]" />
-            </button>
+            </a>
           </div>
         </div>
       </motion.div>
@@ -306,143 +347,160 @@ export const Results: React.FC<ResultsProps> = ({
 
         {/* 3 Program Cards */}
         <div className="space-y-4">
-          {topRecommendedPrograms.map((prog) => (
-            <motion.div
-              key={prog.programId}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: (prog.rank - 1) * 0.1 }}
-              className={`rounded-2xl border p-4 sm:p-5 space-y-3.5 transition-all shadow-2xs ${
-                prog.rank === 1
-                  ? 'bg-gradient-to-b from-[#F9FCFA] to-white border-[#006837]/35 ring-1 ring-[#006837]/15'
-                  : 'bg-[#F8FAF9] border-slate-200'
-              }`}
-            >
-              {/* Header: Rank + School + Program */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  {/* Rank Badge */}
-                  <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-sm flex-shrink-0 mt-0.5 shadow-xs ${
-                      prog.rank === 1
-                        ? 'bg-[#004D28] text-[#E5C158] border border-[#D4AF37]/50'
-                        : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    #{prog.rank}
-                  </div>
+          {topRecommendedPrograms.map((prog) => {
+            const detailUrl = getProgramDetailUrl(prog, primaryPathway.id);
 
-                  <div className="space-y-0.5">
-                    <span className="text-[11px] font-bold text-[#006837] block">
-                      {prog.schoolName}
-                    </span>
-                    <h3 className="text-sm sm:text-base font-extrabold text-[#00381D] leading-tight">
-                      {prog.programName}
-                    </h3>
-                    <span className="inline-block text-[10px] font-bold px-2 py-0.5 bg-white border border-slate-200 rounded-md text-slate-600">
-                      วุฒิ {prog.degreeName}
-                    </span>
+            return (
+              <motion.div
+                key={prog.programId}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: (prog.rank - 1) * 0.1 }}
+                className={`rounded-2xl border p-4 sm:p-5 space-y-3.5 transition-all shadow-2xs ${
+                  prog.rank === 1
+                    ? 'bg-gradient-to-b from-[#F9FCFA] to-white border-[#006837]/35 ring-1 ring-[#006837]/15'
+                    : 'bg-[#F8FAF9] border-slate-200'
+                }`}
+              >
+                {/* Header: Rank + School + Program */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    {/* Rank Badge */}
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-extrabold text-sm flex-shrink-0 mt-0.5 shadow-xs ${
+                        prog.rank === 1
+                          ? 'bg-[#004D28] text-[#E5C158] border border-[#D4AF37]/50'
+                          : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      #{prog.rank}
+                    </div>
+
+                    <div className="space-y-0.5">
+                      <span className="text-[11px] font-bold text-[#006837] block">
+                        {prog.schoolName}
+                      </span>
+                      <h3 className="text-sm sm:text-base font-extrabold text-[#00381D] leading-tight">
+                        {prog.programName}
+                      </h3>
+                      <span className="inline-block text-[10px] font-bold px-2 py-0.5 bg-white border border-slate-200 rounded-md text-slate-600">
+                        วุฒิ {prog.degreeName}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Matched Majors / Tracks: Up to 3 items */}
-              {prog.matchedMajors.length > 0 && (
-                <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 space-y-2">
-                  <div className="text-[11px] font-bold text-[#004D28] flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" />
-                    <span>เส้นทางที่คุณอาจสนใจ (วิชาเอก / แขนงวิชา):</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {prog.matchedMajors.map((major) => (
-                      <div
-                        key={major.id}
-                        className="p-2 rounded-lg bg-[#F8FAF9] border border-slate-100 text-xs space-y-0.5"
-                      >
-                        <div className="font-bold text-[#00381D] flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#006837]" />
-                          <span>{major.name}</span>
-                          {major.trackName && (
-                            <span className="text-[10px] text-slate-500 font-normal">
-                              ({major.trackName})
-                            </span>
+                {/* Matched Majors / Tracks: Up to 3 items */}
+                {prog.matchedMajors.length > 0 && (
+                  <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 space-y-2">
+                    <div className="text-[11px] font-bold text-[#004D28] flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" />
+                      <span>เส้นทางที่คุณอาจสนใจ (วิชาเอก / แขนงวิชา):</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {prog.matchedMajors.map((major) => (
+                        <div
+                          key={major.id}
+                          className="p-2 rounded-lg bg-[#F8FAF9] border border-slate-100 text-xs space-y-0.5"
+                        >
+                          <div className="font-bold text-[#00381D] flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#006837]" />
+                            <span>{major.name}</span>
+                            {major.trackName && (
+                              <span className="text-[10px] text-slate-500 font-normal">
+                                ({major.trackName})
+                              </span>
+                            )}
+                          </div>
+                          {major.description && (
+                            <p className="text-[11px] text-slate-600 pl-3">
+                              {major.description}
+                            </p>
                           )}
                         </div>
-                        {major.description && (
-                          <p className="text-[11px] text-slate-600 pl-3">
-                            {major.description}
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Career Paths Chips Section */}
-              {prog.careerPaths && prog.careerPaths.length > 0 && (
-                <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-[11px] font-bold text-[#004D28] flex items-center gap-1.5">
-                      <Briefcase className="w-3.5 h-3.5 text-[#B38918]" />
-                      <span>ตัวอย่างงานที่อาจต่อยอดได้:</span>
+                      ))}
                     </div>
-                    {((prog.allCareerPaths && prog.allCareerPaths.length > prog.careerPaths.length) || (prog.careerNotes && prog.careerNotes.length > 0)) && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedCareerProg(prog)}
-                        className="text-[11px] font-bold text-[#006837] hover:text-[#00381D] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                      >
-                        <span>ดูแนวทางเพิ่มเติม</span>
-                        <ChevronRight className="w-3 h-3" />
-                      </button>
-                    )}
                   </div>
+                )}
 
-                  {/* 3-5 Chips */}
-                  <div className="flex flex-wrap gap-1.5">
-                    {prog.careerPaths.map((career, cIdx) => (
-                      <span
-                        key={cIdx}
-                        className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-[#F0F7F2] text-[#004D28] border border-[#006837]/20 shadow-2xs"
-                      >
-                        {career}
-                      </span>
-                    ))}
+                {/* Career Paths Chips Section */}
+                {prog.careerPaths && prog.careerPaths.length > 0 && (
+                  <div className="bg-white p-3 sm:p-3.5 rounded-xl border border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[11px] font-bold text-[#004D28] flex items-center gap-1.5">
+                        <Briefcase className="w-3.5 h-3.5 text-[#B38918]" />
+                        <span>ตัวอย่างงานที่อาจต่อยอดได้:</span>
+                      </div>
+                      {((prog.allCareerPaths && prog.allCareerPaths.length > prog.careerPaths.length) || (prog.careerNotes && prog.careerNotes.length > 0)) && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCareerProg(prog)}
+                          className="text-[11px] font-bold text-[#006837] hover:text-[#00381D] hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <span>ดูแนวทางเพิ่มเติม</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 3-5 Chips */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {prog.careerPaths.map((career, cIdx) => (
+                        <span
+                          key={cIdx}
+                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-[#F0F7F2] text-[#004D28] border border-[#006837]/20 shadow-2xs"
+                        >
+                          {career}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Small Disclaimer */}
+                    <p className="text-[10px] text-slate-500 leading-snug pt-0.5">
+                      * ตัวอย่างนี้เป็นแนวทางการต่อยอดความรู้และทักษะ ผลลัพธ์จริงขึ้นอยู่กับคุณสมบัติ ประสบการณ์ กฎหมาย และเกณฑ์ของแต่ละตำแหน่งงาน
+                    </p>
                   </div>
+                )}
 
-                  {/* Small Disclaimer */}
-                  <p className="text-[10px] text-slate-500 leading-snug pt-0.5">
-                    * ตัวอย่างนี้เป็นแนวทางการต่อยอดความรู้และทักษะ ผลลัพธ์จริงขึ้นอยู่กับคุณสมบัติ ประสบการณ์ กฎหมาย และเกณฑ์ของแต่ละตำแหน่งงาน
-                  </p>
+                {/* Fit Rationale: <= 2 sentences */}
+                {prog.fitReasons.length > 0 && (
+                  <div className="bg-[#F0F7F2] p-3 rounded-xl border border-[#006837]/15 space-y-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#004D28] block">
+                      เหตุผลที่แนะนำสำหรับคุณ:
+                    </span>
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      {prog.fitReasons.join(' ')}
+                    </p>
+                  </div>
+                )}
+
+                {/* Direct Detail Link (Anchor tag with target="_blank" and rel="noopener noreferrer") */}
+                <div className="flex justify-end pt-1">
+                  <a
+                    href={detailUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => {
+                      try {
+                        trackEvent('result_detail_clicked', {
+                          rank: prog.rank,
+                          school_code: prog.schoolCode,
+                          program_id: prog.programId,
+                          persona: primaryPathway.id,
+                        });
+                      } catch {
+                        // Analytics error will not prevent link opening
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-white hover:bg-[#F0F7F2] text-[#004D28] border border-[#006837]/30 font-bold text-xs shadow-2xs hover:border-[#006837] inline-flex items-center gap-1.5 transition-all cursor-pointer"
+                  >
+                    <span>ดูรายละเอียดหลักสูตร</span>
+                    <ArrowUpRight className="w-3.5 h-3.5 text-[#004D28]" />
+                  </a>
                 </div>
-              )}
-
-              {/* Fit Rationale: <= 2 sentences */}
-              {prog.fitReasons.length > 0 && (
-                <div className="bg-[#F0F7F2] p-3 rounded-xl border border-[#006837]/15 space-y-1">
-                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#004D28] block">
-                    เหตุผลที่แนะนำสำหรับคุณ:
-                  </span>
-                  <p className="text-xs text-slate-700 leading-relaxed">
-                    {prog.fitReasons.join(' ')}
-                  </p>
-                </div>
-              )}
-
-              {/* Direct Detail Link Button */}
-              <div className="flex justify-end pt-1">
-                <button
-                  type="button"
-                  onClick={() => handleDetailClick(prog)}
-                  className="px-4 py-2 rounded-xl bg-white hover:bg-[#F0F7F2] text-[#004D28] border border-[#006837]/30 font-bold text-xs shadow-2xs hover:border-[#006837] inline-flex items-center gap-1.5 transition-all cursor-pointer"
-                >
-                  <span>ดูรายละเอียดหลักสูตร</span>
-                  <ArrowUpRight className="w-3.5 h-3.5 text-[#004D28]" />
-                </button>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </div>
       </div>
 
@@ -666,18 +724,28 @@ export const Results: React.FC<ResultsProps> = ({
                 >
                   ปิด
                 </button>
-                <button
-                  type="button"
+                <a
+                  href={getProgramDetailUrl(selectedCareerProg, primaryPathway.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   onClick={() => {
-                    const prog = selectedCareerProg;
+                    try {
+                      trackEvent('result_detail_clicked', {
+                        rank: selectedCareerProg.rank,
+                        school_code: selectedCareerProg.schoolCode,
+                        program_id: selectedCareerProg.programId,
+                        persona: primaryPathway.id,
+                      });
+                    } catch {
+                      // Ignore error
+                    }
                     setSelectedCareerProg(null);
-                    handleDetailClick(prog);
                   }}
                   className="px-4 py-2 rounded-xl bg-[#004D28] text-white font-bold text-xs hover:bg-[#00381D] inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <span>ดูรายละเอียดหลักสูตร</span>
                   <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
+                </a>
               </div>
             </motion.div>
           </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { Welcome } from './components/Welcome';
 import { Quiz } from './components/Quiz';
@@ -12,36 +12,98 @@ import { ScoringResult, UserAnswers, AnonymousQuizSessionPayload } from './types
 import {
   trackEvent,
   saveQuizSession,
-  getOrCreateSessionId,
   generateUniqueQuizAttemptId,
   APP_VERSION,
 } from './lib/firebase';
-import { Shield, BarChart2 } from 'lucide-react';
+import {
+  saveQuizResultSession,
+  getQuizResultSession,
+  clearQuizResultSession,
+} from './lib/quizSession';
+
+export type AppView = 'welcome' | 'quiz' | 'results' | 'advisory' | 'admin';
 
 export function App() {
-  const [currentView, setCurrentView] = useState<'welcome' | 'quiz' | 'results' | 'advisory' | 'admin'>('welcome');
+  const [currentView, setCurrentView] = useState<AppView>('welcome');
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [answers, setAnswers] = useState<UserAnswers>({});
   const [scoringResult, setScoringResult] = useState<ScoringResult | null>(null);
 
-  // Check URL query parameters for ?admin=true or ?view=admin
+  // Synchronize view state with browser path/query
+  const syncRouteFromLocation = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    const path = window.location.pathname.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+
+    let targetView: AppView = 'welcome';
+
+    if (params.get('admin') === 'true' || params.get('view') === 'admin' || path === '/admin') {
+      targetView = 'admin';
+    } else if (path === '/result' || path === '/results' || params.get('view') === 'result') {
+      targetView = 'results';
+      // Attempt restore from sessionStorage
+      const savedSession = getQuizResultSession();
+      if (savedSession) {
+        setScoringResult(savedSession.scoringResult);
+        setAnswers(savedSession.answers);
+      }
+    } else if (path === '/quiz' || params.get('view') === 'quiz') {
+      targetView = 'quiz';
+    } else if (path === '/advisory' || params.get('view') === 'advisory') {
+      targetView = 'advisory';
+    } else {
+      targetView = 'welcome';
+    }
+
+    setCurrentView(targetView);
+  }, []);
+
+  // Initial load
   useEffect(() => {
+    syncRouteFromLocation();
+
+    // Handle Browser Back / Forward buttons without reloading or losing state
+    const handlePopState = () => {
+      syncRouteFromLocation();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    trackEvent('quiz_viewed', {});
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [syncRouteFromLocation]);
+
+  // Navigate function using pushState without page reload
+  const navigateTo = (view: AppView, replace = false) => {
+    setCurrentView(view);
+
     if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('admin') === 'true' || params.get('view') === 'admin') {
-        setCurrentView('admin');
+      let routePath = '/';
+      if (view === 'quiz') routePath = '/quiz';
+      else if (view === 'results') routePath = '/result';
+      else if (view === 'admin') routePath = '/admin';
+      else if (view === 'advisory') routePath = '/advisory';
+
+      const currentPath = window.location.pathname;
+      if (currentPath !== routePath) {
+        if (replace) {
+          window.history.replaceState(null, '', routePath);
+        } else {
+          window.history.pushState(null, '', routePath);
+        }
       }
     }
-    // Track initial page view
-    trackEvent('quiz_viewed', {});
-  }, []);
+  };
 
   // Start Quiz
   const handleStartQuiz = () => {
     setAnswers({});
     setCurrentStep(0);
     setScoringResult(null);
-    setCurrentView('quiz');
+    navigateTo('quiz');
     trackEvent('quiz_started', {});
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -80,10 +142,14 @@ export function App() {
     setAnswers(updatedAnswers);
 
     // Track answer event
-    trackEvent('quiz_question_answered', {
-      question_number: questionId,
-      answer_key: optionId,
-    });
+    try {
+      trackEvent('quiz_question_answered', {
+        question_number: questionId,
+        answer_key: optionId,
+      });
+    } catch {
+      // Ignore
+    }
 
     if (currentStep < QUIZ_QUESTIONS.length - 1) {
       setCurrentStep((prev) => prev + 1);
@@ -92,19 +158,27 @@ export function App() {
       // Completed all 6 questions - Calculate result
       const result = calculateQuizResult(updatedAnswers);
       setScoringResult(result);
-      setCurrentView('results');
+
+      // Save to sessionStorage so that page refreshes or external navigation can restore result
+      saveQuizResultSession(result, updatedAnswers);
+
+      navigateTo('results');
       window.scrollTo({ top: 0, behavior: 'smooth' });
 
-      // Build anonymous payload for Firestore and analytics
+      // Build anonymous payload for Firestore and analytics (Strictly NO PII)
       const sessionId = generateUniqueQuizAttemptId();
       const topProg = result.topRecommendedPrograms[0];
 
-      trackEvent('quiz_completed', {
-        persona: result.primaryPathway.id,
-        top_school_code: topProg?.schoolCode || '',
-        top_program_id: topProg?.programId || '',
-        interest_area: updatedAnswers.interestArea || '',
-      });
+      try {
+        trackEvent('quiz_completed', {
+          persona: result.primaryPathway.id,
+          top_school_code: topProg?.schoolCode || '',
+          top_program_id: topProg?.programId || '',
+          interest_area: updatedAnswers.interestArea || '',
+        });
+      } catch {
+        // Ignore
+      }
 
       const payload: AnonymousQuizSessionPayload = {
         sessionId,
@@ -136,7 +210,7 @@ export function App() {
         })),
       };
 
-      // Save anonymous session record
+      // Save anonymous session record to Firestore
       saveQuizSession(payload);
     }
   };
@@ -147,33 +221,38 @@ export function App() {
       setCurrentStep((prev) => prev - 1);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
-      setCurrentView('welcome');
+      navigateTo('welcome');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
-  // Restart Quiz from anywhere
+  // Restart Quiz: ONLY here do we clear the sessionStorage key
   const handleRestart = () => {
-    trackEvent('quiz_restarted', {});
+    try {
+      trackEvent('quiz_restarted', {});
+    } catch {
+      // Ignore
+    }
+    clearQuizResultSession();
     setAnswers({});
     setCurrentStep(0);
     setScoringResult(null);
-    setCurrentView('welcome');
+    navigateTo('quiz');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Open advisory request view
   const handleOpenAdvisory = () => {
-    setCurrentView('advisory');
+    navigateTo('advisory');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Back to results from advisory view
   const handleBackToResults = () => {
     if (scoringResult) {
-      setCurrentView('results');
+      navigateTo('results');
     } else {
-      setCurrentView('welcome');
+      navigateTo('welcome');
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -202,11 +281,12 @@ export function App() {
           />
         )}
 
-        {currentView === 'results' && scoringResult && (
+        {currentView === 'results' && (
           <Results
             result={scoringResult}
             onRestart={handleRestart}
             onOpenAdvisory={handleOpenAdvisory}
+            onStartQuiz={handleStartQuiz}
           />
         )}
 
@@ -218,7 +298,12 @@ export function App() {
         )}
 
         {currentView === 'admin' && (
-          <AdminDashboard onBackToApp={handleRestart} />
+          <AdminDashboard
+            onBackToApp={() => {
+              navigateTo('welcome');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
         )}
       </main>
 
@@ -226,10 +311,13 @@ export function App() {
       <Footer
         currentView={currentView}
         onOpenAdmin={() => {
-          setCurrentView('admin');
+          navigateTo('admin');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
-        onBackToApp={handleRestart}
+        onBackToApp={() => {
+          navigateTo('welcome');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
       />
     </div>
   );

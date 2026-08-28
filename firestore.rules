@@ -1,20 +1,56 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Anonymous quiz completion sessions
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.email_verified == true
+      );
+    }
+
+    // 1. Anonymous quiz completion sessions
     match /quizSessions/{sessionId} {
-      // Allow reading aggregated results
+      // Allow reading for real-time dashboard analytics
       allow read: if true;
-      
-      // Allow anonymous session creation with validation
+
+      // Allow anonymous session creation with strict validation and no PII
       allow create: if request.resource.data.sessionId is string
+                    && request.resource.data.sessionId.size() > 0
+                    && request.resource.data.sessionId.size() <= 128
                     && request.resource.data.scores is map
                     && request.resource.data.answers is map
-                    && request.resource.data.primaryPersona is string;
-      
-      // Prevent modification or deletion of past sessions
+                    && request.resource.data.primaryPersona is string
+                    && request.resource.data.appVersion is string;
+
+      // Prevent client-side modification or deletion of past sessions
       allow update, delete: if false;
+    }
+
+    // 2. Near real-time exhibition interaction telemetry
+    match /interactionEvents/{eventId} {
+      // Allow reading for real-time dashboard analytics
+      allow read: if true;
+
+      // Allow anonymous event logging with strict event types
+      allow create: if request.resource.data.eventId is string
+                    && request.resource.data.eventId.size() > 0
+                    && request.resource.data.eventId.size() <= 128
+                    && request.resource.data.sessionId is string
+                    && request.resource.data.eventType in ['detail_clicked', 'phone_clicked', 'map_clicked', 'quiz_restarted']
+                    && request.resource.data.appVersion is string;
+
+      // Prevent client-side modification or deletion
+      allow update, delete: if false;
+    }
+
+    // Default deny all other paths
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

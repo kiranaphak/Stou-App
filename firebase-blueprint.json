@@ -5,7 +5,7 @@
       "description": "Anonymous quiz completion records and pathway recommendations for STOU Curriculum Finder",
       "type": "object",
       "properties": {
-        "sessionId": { "type": "string", "description": "Random anonymous session identifier from sessionStorage" },
+        "sessionId": { "type": "string", "description": "Random anonymous session identifier" },
         "completedAt": { "type": "string", "format": "date-time", "description": "Timestamp of quiz completion" },
         "appVersion": { "type": "string", "description": "Semantic version of the application" },
         "answers": {
@@ -48,12 +48,36 @@
         }
       },
       "required": ["sessionId", "completedAt", "appVersion", "answers", "scores", "primaryPersona", "recommendedPrograms"]
+    },
+    "interactionEvents": {
+      "title": "Interaction Event",
+      "description": "Near real-time exhibition interaction telemetry without PII",
+      "type": "object",
+      "properties": {
+        "eventId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "eventType": { "type": "string", "enum": ["detail_clicked", "phone_clicked", "map_clicked", "quiz_restarted"] },
+        "occurredAt": { "type": "string", "format": "date-time" },
+        "appVersion": { "type": "string" },
+        "persona": { "type": "string" },
+        "schoolCode": { "type": "string" },
+        "programId": { "type": "string" },
+        "rank": { "type": "number" },
+        "contactKey": { "type": "string" }
+      },
+      "required": ["eventId", "sessionId", "eventType", "occurredAt", "appVersion"]
     }
   },
   "securityRules": {
     "quizSessions": {
       "read": "true",
       "create": "request.resource.data.sessionId is string",
+      "update": "false",
+      "delete": "false"
+    },
+    "interactionEvents": {
+      "read": "true",
+      "create": "request.resource.data.eventId is string",
       "update": "false",
       "delete": "false"
     }

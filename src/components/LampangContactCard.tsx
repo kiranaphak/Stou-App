@@ -9,18 +9,26 @@ interface LampangContactCardProps {
 
 export const LampangContactCard: React.FC<LampangContactCardProps> = ({ className = '' }) => {
   const handlePhoneClick = (phoneKey: '8686' | '8684' | '8687') => {
-    trackEvent('lampang_center_contact_clicked', {
-      contact_method: 'phone',
-      phone_number_key: phoneKey,
-      app_version: APP_VERSION,
-    });
+    try {
+      trackEvent('lampang_center_contact_clicked', {
+        contact_method: 'phone',
+        phone_number_key: phoneKey,
+        app_version: APP_VERSION,
+      });
+    } catch {
+      // Ignore analytics failure
+    }
   };
 
   const handleMapClick = () => {
-    trackEvent('lampang_center_map_clicked', {
-      location_key: 'stou_lampang',
-      app_version: APP_VERSION,
-    });
+    try {
+      trackEvent('lampang_center_map_clicked', {
+        location_key: 'stou_lampang',
+        app_version: APP_VERSION,
+      });
+    } catch {
+      // Ignore analytics failure
+    }
   };
 
   // Determine valid Google Maps destination URL
@@ -97,7 +105,7 @@ export const LampangContactCard: React.FC<LampangContactCardProps> = ({ classNam
         </div>
       </div>
 
-      {/* CTA Buttons: Map Button (min-height 44px) */}
+      {/* CTA Buttons: Map Button (min-height 44px) with target="_blank" and rel="noopener noreferrer" */}
       <div className="pt-2">
         <a
           id="btn-open-lampang-map"

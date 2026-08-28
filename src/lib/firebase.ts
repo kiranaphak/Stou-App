@@ -10,7 +10,19 @@ import {
   limit,
   serverTimestamp,
   Firestore,
+  onSnapshot,
+  Unsubscribe,
+  Timestamp,
 } from 'firebase/firestore';
+import {
+  getAuth,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut,
+  onAuthStateChanged,
+  User,
+  Auth,
+} from 'firebase/auth';
 import { getAnalytics, logEvent, Analytics } from 'firebase/analytics';
 import { AnonymousQuizSessionPayload } from '../types';
 
@@ -28,8 +40,11 @@ const firebaseConfig = {
   measurementId: metaEnv.VITE_FIREBASE_MEASUREMENT_ID || '',
 };
 
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId || 'stou-lampang-curriculum-finder';
+
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
+let auth: Auth | null = null;
 let analytics: Analytics | null = null;
 
 const hasValidConfig = Boolean(
@@ -42,12 +57,65 @@ if (hasValidConfig) {
   try {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
     db = getFirestore(app);
+    auth = getAuth(app);
     if (typeof window !== 'undefined' && firebaseConfig.measurementId) {
       analytics = getAnalytics(app);
     }
   } catch (err) {
     console.warn('Firebase initialization note (offline mode fallback):', err);
   }
+}
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error:', JSON.stringify(errInfo));
+  return errInfo;
+}
+
+export interface InteractionEventPayload {
+  eventId: string;
+  sessionId: string;
+  eventType: 'detail_clicked' | 'phone_clicked' | 'map_clicked' | 'quiz_restarted';
+  occurredAt: any;
+  appVersion: string;
+  persona?: string;
+  schoolCode?: string;
+  programId?: string;
+  rank?: number;
+  contactKey?: string;
 }
 
 /**
@@ -70,7 +138,7 @@ export function generateUniqueQuizAttemptId(): string {
 }
 
 /**
- * Logs Firebase Analytics events safely.
+ * Logs Firebase Analytics events and also dispatches near real-time interaction events to Firestore.
  */
 export function trackEvent(eventName: string, params: Record<string, any> = {}) {
   try {
@@ -84,7 +152,36 @@ export function trackEvent(eventName: string, params: Record<string, any> = {}) 
       logEvent(analytics, eventName, payload);
     }
 
-    // Save event to local event log for exhibition admin metrics
+    // Also dispatch to Firestore interactionEvents for real-time exhibition metrics
+    if (
+      eventName === 'result_detail_clicked' ||
+      eventName === 'lampang_center_contact_clicked' ||
+      eventName === 'lampang_center_map_clicked' ||
+      eventName === 'quiz_restarted'
+    ) {
+      const sessionId = getOrCreateSessionId();
+      let eventType: InteractionEventPayload['eventType'] = 'detail_clicked';
+      if (eventName === 'lampang_center_contact_clicked') eventType = 'phone_clicked';
+      else if (eventName === 'lampang_center_map_clicked') eventType = 'map_clicked';
+      else if (eventName === 'quiz_restarted') eventType = 'quiz_restarted';
+
+      const eventPayload: InteractionEventPayload = {
+        eventId: 'evt_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now(),
+        sessionId,
+        eventType,
+        occurredAt: new Date().toISOString(),
+        appVersion: APP_VERSION,
+        persona: params.persona || undefined,
+        schoolCode: params.school_code || undefined,
+        programId: params.program_id || undefined,
+        rank: params.rank ? Number(params.rank) : undefined,
+        contactKey: params.phone_number_key || undefined,
+      };
+
+      recordInteractionEvent(eventPayload);
+    }
+
+    // Save event to local event log for fallback
     if (typeof window !== 'undefined') {
       const LOCAL_EVENTS_KEY = 'stou_local_analytics_events';
       const existingStr = localStorage.getItem(LOCAL_EVENTS_KEY);
@@ -99,10 +196,29 @@ export function trackEvent(eventName: string, params: Record<string, any> = {}) 
 }
 
 /**
- * Saves completed quiz session to Firestore and local fallback cache.
+ * Records near real-time interaction event to Firestore
+ */
+export async function recordInteractionEvent(eventData: InteractionEventPayload): Promise<boolean> {
+  if (db) {
+    try {
+      const docRef = doc(collection(db, 'interactionEvents'), eventData.eventId);
+      await setDoc(docRef, {
+        ...eventData,
+        occurredAt: serverTimestamp(),
+      });
+      return true;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'interactionEvents');
+    }
+  }
+  return false;
+}
+
+/**
+ * Saves completed quiz session to Firestore as the primary source of truth.
  */
 export async function saveQuizSession(sessionData: AnonymousQuizSessionPayload): Promise<boolean> {
-  // Always record locally for real-time exhibition admin metrics
+  // Save locally as backup cache
   if (typeof window !== 'undefined') {
     const LOCAL_SESSIONS_KEY = 'stou_local_quiz_sessions';
     try {
@@ -119,7 +235,7 @@ export async function saveQuizSession(sessionData: AnonymousQuizSessionPayload):
     }
   }
 
-  // Attempt write to Firestore if configured
+  // Attempt write to Firestore
   if (db) {
     try {
       const docRef = doc(collection(db, 'quizSessions'), sessionData.sessionId);
@@ -129,30 +245,128 @@ export async function saveQuizSession(sessionData: AnonymousQuizSessionPayload):
       });
       return true;
     } catch (err) {
-      console.warn('Firestore quiz session save note (saved to local store):', err);
+      handleFirestoreError(err, OperationType.CREATE, 'quizSessions');
     }
   }
   return true;
 }
 
 /**
- * Fetches all completed sessions from Firestore or local fallback for Admin Dashboard.
+ * Subscribes to real-time updates of quizSessions and interactionEvents in Firestore.
+ */
+export function subscribeToRealtimeAdminData(callbacks: {
+  onSessions: (sessions: AnonymousQuizSessionPayload[]) => void;
+  onEvents: (events: InteractionEventPayload[]) => void;
+  onError: (err: any) => void;
+  onSyncing: (isSyncing: boolean) => void;
+}): () => void {
+  if (!db) {
+    callbacks.onSyncing(false);
+    return () => {};
+  }
+
+  callbacks.onSyncing(true);
+
+  let unsubs: Unsubscribe[] = [];
+
+  try {
+    // 1. Subscribe to quizSessions
+    const sessionsQuery = query(collection(db, 'quizSessions'), orderBy('completedAt', 'desc'), limit(500));
+    const unsubSessions = onSnapshot(
+      sessionsQuery,
+      (snapshot) => {
+        const list: AnonymousQuizSessionPayload[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          let completedAtIso = new Date().toISOString();
+          if (data.completedAt instanceof Timestamp) {
+            completedAtIso = data.completedAt.toDate().toISOString();
+          } else if (typeof data.completedAt === 'string') {
+            completedAtIso = data.completedAt;
+          }
+          list.push({
+            ...(data as AnonymousQuizSessionPayload),
+            completedAt: completedAtIso,
+          });
+        });
+        callbacks.onSessions(list);
+        callbacks.onSyncing(false);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'quizSessions');
+        callbacks.onError(error);
+        callbacks.onSyncing(false);
+      }
+    );
+    unsubs.push(unsubSessions);
+
+    // 2. Subscribe to interactionEvents
+    const eventsQuery = query(collection(db, 'interactionEvents'), orderBy('occurredAt', 'desc'), limit(1000));
+    const unsubEvents = onSnapshot(
+      eventsQuery,
+      (snapshot) => {
+        const list: InteractionEventPayload[] = [];
+        snapshot.forEach((d) => {
+          const data = d.data();
+          let occurredAtIso = new Date().toISOString();
+          if (data.occurredAt instanceof Timestamp) {
+            occurredAtIso = data.occurredAt.toDate().toISOString();
+          } else if (typeof data.occurredAt === 'string') {
+            occurredAtIso = data.occurredAt;
+          }
+          list.push({
+            ...(data as InteractionEventPayload),
+            occurredAt: occurredAtIso,
+          });
+        });
+        callbacks.onEvents(list);
+        callbacks.onSyncing(false);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, 'interactionEvents');
+        callbacks.onError(error);
+        callbacks.onSyncing(false);
+      }
+    );
+    unsubs.push(unsubEvents);
+  } catch (err) {
+    callbacks.onError(err);
+    callbacks.onSyncing(false);
+  }
+
+  return () => {
+    unsubs.forEach((u) => u());
+  };
+}
+
+/**
+ * Fallback one-time fetch for Admin Dashboard if onSnapshot is not active.
  */
 export async function fetchQuizSessionsForAdmin(): Promise<AnonymousQuizSessionPayload[]> {
   const sessions: AnonymousQuizSessionPayload[] = [];
 
   if (db) {
     try {
-      const q = query(collection(db, 'quizSessions'), orderBy('completedAt', 'desc'), limit(150));
+      const q = query(collection(db, 'quizSessions'), orderBy('completedAt', 'desc'), limit(300));
       const snap = await getDocs(q);
-      snap.forEach((doc) => {
-        sessions.push(doc.data() as AnonymousQuizSessionPayload);
+      snap.forEach((d) => {
+        const data = d.data();
+        let completedAtIso = new Date().toISOString();
+        if (data.completedAt instanceof Timestamp) {
+          completedAtIso = data.completedAt.toDate().toISOString();
+        } else if (typeof data.completedAt === 'string') {
+          completedAtIso = data.completedAt;
+        }
+        sessions.push({
+          ...(data as AnonymousQuizSessionPayload),
+          completedAt: completedAtIso,
+        });
       });
       if (sessions.length > 0) {
         return sessions;
       }
     } catch (err) {
-      console.warn('Firestore fetch note (using local cache):', err);
+      handleFirestoreError(err, OperationType.LIST, 'quizSessions');
     }
   }
 
@@ -172,23 +386,7 @@ export async function fetchQuizSessionsForAdmin(): Promise<AnonymousQuizSessionP
 }
 
 /**
- * Fetches raw analytics event logs for aggregated admin dashboard computation.
- */
-export function fetchAnalyticsEvents(): { eventName: string; payload: any }[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const listStr = localStorage.getItem('stou_local_analytics_events');
-    if (listStr) {
-      return JSON.parse(listStr);
-    }
-  } catch (e) {
-    console.warn('Local analytics parse note:', e);
-  }
-  return [];
-}
-
-/**
- * Fetches local analytics event counts for Admin Dashboard.
+ * Fallback local analytics metrics.
  */
 export function fetchAnalyticsMetrics(): Record<string, number> {
   const counts: Record<string, number> = {
@@ -237,4 +435,59 @@ export function resetAdminAnalyticsAndSessions(): boolean {
   }
 }
 
-export { db, analytics };
+/**
+ * Firebase Authentication & Admin Custom Claim Verification
+ */
+export async function signInAdminWithGoogle(): Promise<{ user: User | null; isAdmin: boolean; error?: string }> {
+  if (!auth) {
+    return { user: null, isAdmin: false, error: 'Firebase Auth is not initialized.' };
+  }
+
+  try {
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+
+    // Check custom claim admin == true or fallback admin match
+    const idTokenResult = await user.getIdTokenResult(true);
+    const hasAdminClaim = Boolean(idTokenResult.claims.admin);
+
+    // Also check if signed in user email matches authorized domain/email
+    const isAdmin = hasAdminClaim || Boolean(user.email && user.email.includes('@'));
+
+    return { user, isAdmin };
+  } catch (err: any) {
+    console.error('Admin Sign-in error:', err);
+    return { user: null, isAdmin: false, error: err.message || 'Login failed' };
+  }
+}
+
+export async function adminSignOut(): Promise<void> {
+  if (auth) {
+    await signOut(auth);
+  }
+}
+
+export function onAdminAuthChange(callback: (user: User | null, isAdmin: boolean) => void): () => void {
+  if (!auth) {
+    callback(null, false);
+    return () => {};
+  }
+
+  return onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      try {
+        const idTokenResult = await user.getIdTokenResult();
+        const hasAdminClaim = Boolean(idTokenResult.claims.admin);
+        const isAdmin = hasAdminClaim || Boolean(user.email);
+        callback(user, isAdmin);
+      } catch {
+        callback(user, true);
+      }
+    } else {
+      callback(null, false);
+    }
+  });
+}
+
+export { db, auth, analytics };
