@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 
@@ -17,7 +18,90 @@ app.use((_req, res, next) => {
 });
 
 // Body parser with strict limit
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '128kb' }));
+
+// ==========================================
+// Persistent Storage for Quiz Sessions & Events
+// ==========================================
+interface AnonymousQuizSessionRecord {
+  sessionId: string;
+  completedAt: string;
+  appVersion: string;
+  answers: Record<string, string>;
+  scores: {
+    careerScore: number;
+    degreeScore: number;
+    upskillScore: number;
+  };
+  primaryPersona: string;
+  recommendedPrograms: Array<{
+    rank: number;
+    schoolCode: string;
+    schoolName: string;
+    programId: string;
+    programName: string;
+    trackName?: string | null;
+    majorName?: string | null;
+    recommendationScore?: number;
+  }>;
+}
+
+interface InteractionEventRecord {
+  eventId: string;
+  sessionId: string;
+  eventType: 'detail_clicked' | 'phone_clicked' | 'map_clicked' | 'quiz_restarted';
+  occurredAt: string;
+  appVersion: string;
+  persona?: string;
+  schoolCode?: string;
+  programId?: string;
+  rank?: number;
+  contactKey?: string;
+}
+
+const DATA_DIR = path.join(process.cwd(), 'data');
+const DB_FILE = path.join(DATA_DIR, 'stou_records.json');
+
+let inMemorySessions: AnonymousQuizSessionRecord[] = [];
+let inMemoryEvents: InteractionEventRecord[] = [];
+
+// Initialize data directory and load existing records
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (fs.existsSync(DB_FILE)) {
+    const raw = fs.readFileSync(DB_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    inMemorySessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+    inMemoryEvents = Array.isArray(parsed.events) ? parsed.events : [];
+  }
+} catch (e) {
+  console.warn('[Server DB] Note initializing file db:', e);
+}
+
+function persistToDisk() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(
+      DB_FILE,
+      JSON.stringify(
+        {
+          sessions: inMemorySessions.slice(0, 3000),
+          events: inMemoryEvents.slice(0, 5000),
+          updatedAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ),
+      'utf-8'
+    );
+  } catch (err) {
+    console.warn('[Server DB] Write error:', err);
+  }
+}
 
 // In-Memory Simple Rate Limiter for Lead Submissions (protect against spam/flooding)
 interface RateLimitRecord {
@@ -260,6 +344,145 @@ app.post('/api/leads', async (req, res) => {
       error: 'เกิดข้อผิดพลาดในระบบ กรุณาติดต่อเจ้าหน้าที่ประจำบูธ มสธ.',
     });
   }
+});
+
+// ==========================================
+// Quiz Sessions & Exhibition Telemetry Endpoints
+// ==========================================
+
+/**
+ * GET /api/quiz-sessions
+ * Returns all saved anonymous quiz sessions for real-time admin sync across devices.
+ */
+app.get('/api/quiz-sessions', (_req, res) => {
+  res.json({
+    success: true,
+    sessions: inMemorySessions,
+    count: inMemorySessions.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /api/quiz-sessions
+ * Persists an anonymous quiz session record to the shared server store.
+ */
+app.post('/api/quiz-sessions', (req, res) => {
+  try {
+    const raw = req.body || {};
+    const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId.trim() : '';
+
+    if (!sessionId) {
+      return res.status(400).json({ success: false, error: 'sessionId is required' });
+    }
+
+    const sessionRecord: AnonymousQuizSessionRecord = {
+      sessionId,
+      completedAt: typeof raw.completedAt === 'string' ? raw.completedAt : new Date().toISOString(),
+      appVersion: typeof raw.appVersion === 'string' ? raw.appVersion : '1.0.0',
+      answers: typeof raw.answers === 'object' && raw.answers !== null ? raw.answers : {},
+      scores: {
+        careerScore: Number(raw.scores?.careerScore) || 0,
+        degreeScore: Number(raw.scores?.degreeScore) || 0,
+        upskillScore: Number(raw.scores?.upskillScore) || 0,
+      },
+      primaryPersona: typeof raw.primaryPersona === 'string' ? raw.primaryPersona : 'career',
+      recommendedPrograms: Array.isArray(raw.recommendedPrograms) ? raw.recommendedPrograms : [],
+    };
+
+    // Deduplicate/Update by sessionId
+    const existingIndex = inMemorySessions.findIndex((s) => s.sessionId === sessionId);
+    if (existingIndex >= 0) {
+      inMemorySessions[existingIndex] = sessionRecord;
+    } else {
+      inMemorySessions.unshift(sessionRecord);
+    }
+
+    // Limit memory cap
+    if (inMemorySessions.length > 3000) {
+      inMemorySessions.pop();
+    }
+
+    persistToDisk();
+
+    return res.status(200).json({
+      success: true,
+      sessionId,
+      totalSessions: inMemorySessions.length,
+    });
+  } catch (err: any) {
+    console.error('[Quiz Session API] Error saving session:', err?.message);
+    return res.status(500).json({ success: false, error: 'Failed to record session' });
+  }
+});
+
+/**
+ * GET /api/interactions
+ * Returns all recorded near real-time interaction events.
+ */
+app.get('/api/interactions', (_req, res) => {
+  res.json({
+    success: true,
+    events: inMemoryEvents,
+    count: inMemoryEvents.length,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /api/interactions
+ * Persists an interaction event (e.g. detail_clicked, phone_clicked, map_clicked, quiz_restarted).
+ */
+app.post('/api/interactions', (req, res) => {
+  try {
+    const raw = req.body || {};
+    const eventId = typeof raw.eventId === 'string' ? raw.eventId.trim() : 'evt_' + Date.now();
+    const sessionId = typeof raw.sessionId === 'string' ? raw.sessionId.trim() : 'anonymous';
+    const eventType = raw.eventType || 'detail_clicked';
+
+    const eventRecord: InteractionEventRecord = {
+      eventId,
+      sessionId,
+      eventType,
+      occurredAt: typeof raw.occurredAt === 'string' ? raw.occurredAt : new Date().toISOString(),
+      appVersion: typeof raw.appVersion === 'string' ? raw.appVersion : '1.0.0',
+      persona: raw.persona ? String(raw.persona) : undefined,
+      schoolCode: raw.schoolCode ? String(raw.schoolCode) : undefined,
+      programId: raw.programId ? String(raw.programId) : undefined,
+      rank: raw.rank ? Number(raw.rank) : undefined,
+      contactKey: raw.contactKey ? String(raw.contactKey) : undefined,
+    };
+
+    // Deduplicate
+    const exists = inMemoryEvents.some((e) => e.eventId === eventId);
+    if (!exists) {
+      inMemoryEvents.unshift(eventRecord);
+      if (inMemoryEvents.length > 5000) {
+        inMemoryEvents.pop();
+      }
+      persistToDisk();
+    }
+
+    return res.status(200).json({ success: true, eventId });
+  } catch (err: any) {
+    console.error('[Interactions API] Error recording event:', err?.message);
+    return res.status(500).json({ success: false, error: 'Failed to record event' });
+  }
+});
+
+/**
+ * POST /api/admin/reset
+ * Resets all recorded sessions and events when authorized.
+ */
+app.post('/api/admin/reset', (req, res) => {
+  const { password } = req.body || {};
+  if (password === 'stou2569' || password === 'admin') {
+    inMemorySessions = [];
+    inMemoryEvents = [];
+    persistToDisk();
+    return res.status(200).json({ success: true, message: 'All statistics reset successfully' });
+  }
+  return res.status(403).json({ success: false, error: 'Unauthorized' });
 });
 
 // Vite middleware & Static serving

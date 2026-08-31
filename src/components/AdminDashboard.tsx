@@ -183,6 +183,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
     setPasswordInput('');
   };
 
+  const handleManualRefresh = async () => {
+    setIsSyncing(true);
+    try {
+      const fetched = await fetchQuizSessionsForAdmin();
+      setSessions(fetched);
+      setLastSyncTime(formatBangkokDateTime(new Date()));
+      setSyncErrorNotice(null);
+    } catch (err) {
+      console.warn('Manual refresh note:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // 1. Filtered Sessions by Bangkok Timezone Date Range and Persona
   const filteredSessions = useMemo(() => {
     return sessions.filter((s) => {
@@ -683,6 +697,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
+            onClick={handleManualRefresh}
+            disabled={isSyncing}
+            className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#004D28] border border-emerald-200 font-bold text-xs shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
+            title="กดเพื่อดึงข้อมูลล่าสุดทันที"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-[#006837] ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>รีเฟรชข้อมูล</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleExportExcel}
             disabled={exportingExcel}
             className="px-3.5 py-2 rounded-xl bg-[#004D28] hover:bg-[#00381D] text-white font-bold text-xs shadow-2xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
@@ -814,6 +839,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBackToApp }) =
               onChange={(e) => setCustomEndDate(e.target.value)}
               className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs"
             />
+          </div>
+        )}
+
+        {/* Suggestion banner if current filter yields 0 results but total data exists */}
+        {filteredSessions.length === 0 && sessions.length > 0 && (
+          <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 font-medium">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+              <span>
+                {dateFilter === 'today'
+                  ? `วันนี้ยังไม่มีข้อมูลใหม่ แต่มีสถิติสะสมทั้งหมด ${sessions.length} รายการในระบบ`
+                  : `ไม่พบข้อมูลตามตัวกรองที่เลือก แต่มีสถิติสะสมทั้งหมด ${sessions.length} รายการ`}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setDateFilter('7days')}
+                className="px-2.5 py-1 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold text-[11px] transition-colors cursor-pointer"
+              >
+                ดู 7 วันล่าสุด
+              </button>
+              <button
+                type="button"
+                onClick={() => setDateFilter('all')}
+                className="px-2.5 py-1 rounded-lg bg-[#004D28] hover:bg-[#00381D] text-white font-bold text-[11px] transition-colors cursor-pointer"
+              >
+                ดูทั้งหมด ({sessions.length})
+              </button>
+            </div>
           </div>
         )}
       </div>

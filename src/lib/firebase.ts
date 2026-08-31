@@ -196,9 +196,22 @@ export function trackEvent(eventName: string, params: Record<string, any> = {}) 
 }
 
 /**
- * Records near real-time interaction event to Firestore
+ * Records near real-time interaction event to Firestore & Backend Server API
  */
 export async function recordInteractionEvent(eventData: InteractionEventPayload): Promise<boolean> {
+  // 1. Send to server-side shared API
+  try {
+    fetch('/api/interactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(eventData),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {
+    // Ignore network error
+  }
+
+  // 2. Write to Firestore if connected
   if (db) {
     try {
       const docRef = doc(collection(db, 'interactionEvents'), eventData.eventId);
@@ -215,19 +228,22 @@ export async function recordInteractionEvent(eventData: InteractionEventPayload)
 }
 
 /**
- * Saves completed quiz session to Firestore as the primary source of truth.
+ * Saves completed quiz session to Server API and Firestore as the primary source of truth.
  */
 export async function saveQuizSession(sessionData: AnonymousQuizSessionPayload): Promise<boolean> {
-  // Save locally as backup cache
+  // 1. Save locally as backup cache on current device
   if (typeof window !== 'undefined') {
     const LOCAL_SESSIONS_KEY = 'stou_local_quiz_sessions';
     try {
       const existingStr = localStorage.getItem(LOCAL_SESSIONS_KEY);
       const list: any[] = existingStr ? JSON.parse(existingStr) : [];
-      list.push({
-        ...sessionData,
-        completedAt: new Date().toISOString(),
-      });
+      // Deduplicate
+      const idx = list.findIndex((s) => s.sessionId === sessionData.sessionId);
+      if (idx >= 0) {
+        list[idx] = { ...sessionData, completedAt: new Date().toISOString() };
+      } else {
+        list.push({ ...sessionData, completedAt: new Date().toISOString() });
+      }
       if (list.length > 300) list.shift();
       localStorage.setItem(LOCAL_SESSIONS_KEY, JSON.stringify(list));
     } catch (e) {
@@ -235,7 +251,19 @@ export async function saveQuizSession(sessionData: AnonymousQuizSessionPayload):
     }
   }
 
-  // Attempt write to Firestore
+  // 2. Save to Server-side shared API for cross-device visibility
+  try {
+    await fetch('/api/quiz-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sessionData),
+      keepalive: true,
+    });
+  } catch (apiErr) {
+    console.warn('Server session API dispatch note:', apiErr);
+  }
+
+  // 3. Attempt write to Firestore
   if (db) {
     try {
       const docRef = doc(collection(db, 'quizSessions'), sessionData.sessionId);
@@ -252,7 +280,34 @@ export async function saveQuizSession(sessionData: AnonymousQuizSessionPayload):
 }
 
 /**
- * Subscribes to real-time updates of quizSessions and interactionEvents in Firestore.
+ * Helper to fetch from backend server API
+ */
+async function fetchServerQuizData(): Promise<{ sessions: AnonymousQuizSessionPayload[]; events: InteractionEventPayload[] }> {
+  let sessions: AnonymousQuizSessionPayload[] = [];
+  let events: InteractionEventPayload[] = [];
+
+  try {
+    const [resSessions, resEvents] = await Promise.allSettled([
+      fetch('/api/quiz-sessions', { cache: 'no-store' }).then((r) => r.json()),
+      fetch('/api/interactions', { cache: 'no-store' }).then((r) => r.json()),
+    ]);
+
+    if (resSessions.status === 'fulfilled' && resSessions.value?.success && Array.isArray(resSessions.value.sessions)) {
+      sessions = resSessions.value.sessions;
+    }
+    if (resEvents.status === 'fulfilled' && resEvents.value?.success && Array.isArray(resEvents.value.events)) {
+      events = resEvents.value.events;
+    }
+  } catch (err) {
+    console.warn('Server fetch data note:', err);
+  }
+
+  return { sessions, events };
+}
+
+/**
+ * Subscribes to real-time updates of quizSessions and interactionEvents.
+ * Combines Firestore onSnapshot (if online), periodic polling to shared Server API, and local storage fallback.
  */
 export function subscribeToRealtimeAdminData(callbacks: {
   onSessions: (sessions: AnonymousQuizSessionPayload[]) => void;
@@ -260,91 +315,168 @@ export function subscribeToRealtimeAdminData(callbacks: {
   onError: (err: any) => void;
   onSyncing: (isSyncing: boolean) => void;
 }): () => void {
-  if (!db) {
-    callbacks.onSyncing(false);
-    return () => {};
+  let isSubscribed = true;
+  let unsubs: Unsubscribe[] = [];
+  let pollTimer: any = null;
+
+  let sessionMap = new Map<string, AnonymousQuizSessionPayload>();
+  let eventMap = new Map<string, InteractionEventPayload>();
+
+  const emitMergedData = () => {
+    if (!isSubscribed) return;
+    const sortedSessions = Array.from(sessionMap.values()).sort((a, b) => {
+      const timeA = new Date(a.completedAt || 0).getTime();
+      const timeB = new Date(b.completedAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    const sortedEvents = Array.from(eventMap.values()).sort((a, b) => {
+      const timeA = new Date(a.occurredAt || 0).getTime();
+      const timeB = new Date(b.occurredAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    callbacks.onSessions(sortedSessions);
+    callbacks.onEvents(sortedEvents);
+  };
+
+  // 1. Initial local storage load
+  if (typeof window !== 'undefined') {
+    try {
+      const localSessStr = localStorage.getItem('stou_local_quiz_sessions');
+      if (localSessStr) {
+        const localList: AnonymousQuizSessionPayload[] = JSON.parse(localSessStr);
+        localList.forEach((s) => {
+          if (s.sessionId) sessionMap.set(s.sessionId, s);
+        });
+      }
+    } catch {}
+    emitMergedData();
   }
 
-  callbacks.onSyncing(true);
+  // 2. Poll Server API function
+  const pollServer = async () => {
+    if (!isSubscribed) return;
+    callbacks.onSyncing(true);
+    try {
+      const { sessions, events } = await fetchServerQuizData();
+      let changed = false;
 
-  let unsubs: Unsubscribe[] = [];
+      sessions.forEach((s) => {
+        if (s.sessionId && (!sessionMap.has(s.sessionId) || sessionMap.get(s.sessionId)?.completedAt !== s.completedAt)) {
+          sessionMap.set(s.sessionId, s);
+          changed = true;
+        }
+      });
 
-  try {
-    // 1. Subscribe to quizSessions
-    const sessionsQuery = query(collection(db, 'quizSessions'), orderBy('completedAt', 'desc'), limit(500));
-    const unsubSessions = onSnapshot(
-      sessionsQuery,
-      (snapshot) => {
-        const list: AnonymousQuizSessionPayload[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data();
-          let completedAtIso = new Date().toISOString();
-          if (data.completedAt instanceof Timestamp) {
-            completedAtIso = data.completedAt.toDate().toISOString();
-          } else if (typeof data.completedAt === 'string') {
-            completedAtIso = data.completedAt;
-          }
-          list.push({
-            ...(data as AnonymousQuizSessionPayload),
-            completedAt: completedAtIso,
-          });
-        });
-        callbacks.onSessions(list);
-        callbacks.onSyncing(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'quizSessions');
-        callbacks.onError(error);
+      events.forEach((e) => {
+        if (e.eventId && (!eventMap.has(e.eventId) || eventMap.get(e.eventId)?.occurredAt !== e.occurredAt)) {
+          eventMap.set(e.eventId, e);
+          changed = true;
+        }
+      });
+
+      if (changed || sessionMap.size > 0 || events.length > 0) {
+        emitMergedData();
+      }
+    } catch (err) {
+      console.warn('Poll server note:', err);
+    } finally {
+      if (isSubscribed) {
         callbacks.onSyncing(false);
       }
-    );
-    unsubs.push(unsubSessions);
+    }
+  };
 
-    // 2. Subscribe to interactionEvents
-    const eventsQuery = query(collection(db, 'interactionEvents'), orderBy('occurredAt', 'desc'), limit(1000));
-    const unsubEvents = onSnapshot(
-      eventsQuery,
-      (snapshot) => {
-        const list: InteractionEventPayload[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data();
-          let occurredAtIso = new Date().toISOString();
-          if (data.occurredAt instanceof Timestamp) {
-            occurredAtIso = data.occurredAt.toDate().toISOString();
-          } else if (typeof data.occurredAt === 'string') {
-            occurredAtIso = data.occurredAt;
-          }
-          list.push({
-            ...(data as InteractionEventPayload),
-            occurredAt: occurredAtIso,
+  // Immediate fetch
+  pollServer();
+
+  // Polling every 4 seconds for live exhibition dashboard
+  pollTimer = setInterval(pollServer, 4000);
+
+  // 3. If Firestore DB is configured, attach Firestore onSnapshot listeners
+  if (db) {
+    try {
+      // Subscribe to quizSessions
+      const sessionsQuery = query(collection(db, 'quizSessions'), orderBy('completedAt', 'desc'), limit(500));
+      const unsubSessions = onSnapshot(
+        sessionsQuery,
+        (snapshot) => {
+          snapshot.forEach((d) => {
+            const data = d.data();
+            let completedAtIso = new Date().toISOString();
+            if (data.completedAt instanceof Timestamp) {
+              completedAtIso = data.completedAt.toDate().toISOString();
+            } else if (typeof data.completedAt === 'string') {
+              completedAtIso = data.completedAt;
+            }
+            sessionMap.set(d.id, {
+              ...(data as AnonymousQuizSessionPayload),
+              sessionId: d.id,
+              completedAt: completedAtIso,
+            });
           });
-        });
-        callbacks.onEvents(list);
-        callbacks.onSyncing(false);
-      },
-      (error) => {
-        handleFirestoreError(error, OperationType.LIST, 'interactionEvents');
-        callbacks.onError(error);
-        callbacks.onSyncing(false);
-      }
-    );
-    unsubs.push(unsubEvents);
-  } catch (err) {
-    callbacks.onError(err);
-    callbacks.onSyncing(false);
+          emitMergedData();
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.LIST, 'quizSessions');
+        }
+      );
+      unsubs.push(unsubSessions);
+
+      // Subscribe to interactionEvents
+      const eventsQuery = query(collection(db, 'interactionEvents'), orderBy('occurredAt', 'desc'), limit(1000));
+      const unsubEvents = onSnapshot(
+        eventsQuery,
+        (snapshot) => {
+          snapshot.forEach((d) => {
+            const data = d.data();
+            let occurredAtIso = new Date().toISOString();
+            if (data.occurredAt instanceof Timestamp) {
+              occurredAtIso = data.occurredAt.toDate().toISOString();
+            } else if (typeof data.occurredAt === 'string') {
+              occurredAtIso = data.occurredAt;
+            }
+            eventMap.set(d.id, {
+              ...(data as InteractionEventPayload),
+              eventId: d.id,
+              occurredAt: occurredAtIso,
+            });
+          });
+          emitMergedData();
+        },
+        (error) => {
+          handleFirestoreError(error, OperationType.LIST, 'interactionEvents');
+        }
+      );
+      unsubs.push(unsubEvents);
+    } catch (err) {
+      console.warn('Firestore setup note in realtime data:', err);
+    }
   }
 
   return () => {
+    isSubscribed = false;
+    if (pollTimer) clearInterval(pollTimer);
     unsubs.forEach((u) => u());
   };
 }
 
 /**
- * Fallback one-time fetch for Admin Dashboard if onSnapshot is not active.
+ * Fallback one-time fetch for Admin Dashboard.
  */
 export async function fetchQuizSessionsForAdmin(): Promise<AnonymousQuizSessionPayload[]> {
-  const sessions: AnonymousQuizSessionPayload[] = [];
+  const sessionMap = new Map<string, AnonymousQuizSessionPayload>();
 
+  // 1. Fetch from server API
+  try {
+    const { sessions } = await fetchServerQuizData();
+    sessions.forEach((s) => {
+      if (s.sessionId) sessionMap.set(s.sessionId, s);
+    });
+  } catch {}
+
+  // 2. Fetch from Firestore if available
   if (db) {
     try {
       const q = query(collection(db, 'quizSessions'), orderBy('completedAt', 'desc'), limit(300));
@@ -357,32 +489,39 @@ export async function fetchQuizSessionsForAdmin(): Promise<AnonymousQuizSessionP
         } else if (typeof data.completedAt === 'string') {
           completedAtIso = data.completedAt;
         }
-        sessions.push({
+        sessionMap.set(d.id, {
           ...(data as AnonymousQuizSessionPayload),
+          sessionId: d.id,
           completedAt: completedAtIso,
         });
       });
-      if (sessions.length > 0) {
-        return sessions;
-      }
     } catch (err) {
       handleFirestoreError(err, OperationType.LIST, 'quizSessions');
     }
   }
 
-  // Fallback to local storage sessions
+  // 3. Merge local storage
   if (typeof window !== 'undefined') {
     try {
       const localStr = localStorage.getItem('stou_local_quiz_sessions');
       if (localStr) {
-        return JSON.parse(localStr).reverse();
+        const localList: AnonymousQuizSessionPayload[] = JSON.parse(localStr);
+        localList.forEach((s) => {
+          if (s.sessionId && !sessionMap.has(s.sessionId)) {
+            sessionMap.set(s.sessionId, s);
+          }
+        });
       }
     } catch (e) {
       console.warn('Failed to parse local sessions:', e);
     }
   }
 
-  return sessions;
+  return Array.from(sessionMap.values()).sort((a, b) => {
+    const timeA = new Date(a.completedAt || 0).getTime();
+    const timeB = new Date(b.completedAt || 0).getTime();
+    return timeB - timeA;
+  });
 }
 
 /**
@@ -420,19 +559,32 @@ export function fetchAnalyticsMetrics(): Record<string, number> {
 }
 
 /**
- * Resets local analytics events and saved sessions to start a fresh count cycle.
+ * Resets local analytics events and saved sessions on both server and client.
  */
-export function resetAdminAnalyticsAndSessions(): boolean {
-  if (typeof window === 'undefined') return false;
+export async function resetAdminAnalyticsAndSessions(password = 'stou2569'): Promise<boolean> {
+  // 1. Reset on Server API
   try {
-    localStorage.removeItem('stou_local_analytics_events');
-    localStorage.removeItem('stou_local_quiz_sessions');
-    sessionStorage.removeItem('stou_quiz_session_id');
-    return true;
-  } catch (e) {
-    console.warn('Failed to reset analytics and sessions:', e);
-    return false;
+    await fetch('/api/admin/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+  } catch (err) {
+    console.warn('Server reset note:', err);
   }
+
+  // 2. Clear local storage
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.removeItem('stou_local_analytics_events');
+      localStorage.removeItem('stou_local_quiz_sessions');
+      sessionStorage.removeItem('stou_quiz_session_id');
+    } catch (e) {
+      console.warn('Failed to reset local analytics and sessions:', e);
+    }
+  }
+
+  return true;
 }
 
 /**
